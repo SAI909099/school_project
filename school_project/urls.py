@@ -28,5 +28,9 @@ from django.views.generic import TemplateView
 urlpatterns += [
     path("login/", TemplateView.as_view(template_name="auth_login.html"), name="login"),
     path("dashboard/", TemplateView.as_view(template_name="admin-dashboard.html"), name="admin-dashboard"),
+    path('teachers/', TemplateView.as_view(template_name="teacher-main.html"), name="teachers"),
+    path("classes/", TemplateView.as_view(template_name="teacher-class.html"), name="classes"),
+    path("jadval/", TemplateView.as_view(template_name="teacher-list.html"), name="jadval"),
+    path("sozlamalar/", TemplateView.as_view(template_name="teacher-settings.html"), name="sozlamalar"),
 
 ]

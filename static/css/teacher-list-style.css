@@ -1,0 +1,142 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Poppins, sans-serif;
+}
+
+.container {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 250px;
+  background: #2b2a8f;
+  color: #fff;
+  padding: 20px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.logo img {
+  width: 250px;
+  height: 65px;
+}
+
+.sidebar-title {
+  margin: 20px 0;
+  font-weight: bold;
+  font-size: 29px;
+}
+
+.menu a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 6px;
+  margin-bottom: 5px;
+  transition: 0.3s;
+}
+
+.menu a img {
+  width: 40px;
+  height: 40px;
+  transition: filter 0.3s;
+}
+
+.menu a.active,
+.menu a:hover {
+  background: #fff;
+  color: #4D38D7;
+}
+
+.menu a:hover img,
+.menu a.active img {
+  filter: brightness(0) saturate(100%) invert(20%) sepia(80%) saturate(2600%) hue-rotate(235deg) brightness(90%) contrast(100%);
+}
+
+
+/* Content */
+.content {
+  flex: 1;
+  background: #f9f9f9;
+  padding: 20px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+}
+
+.topbar input {
+  width: 300px;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 20px;
+}
+
+.topbar .icons a img {
+  width: 40px;
+  height: 40px;
+  margin-left: 15px;
+}
+
+/* Cards grid */
+.cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+}
+
+.card h3 {
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #000;
+}
+
+.card table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.card table th,
+.card table td {
+  border: 1px solid #ddd;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.card table th {
+  background: #f5f5f5;
+  font-weight: bold;
+  color: #333;
+}
+
+
+/* Pagination */
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}

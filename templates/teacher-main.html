@@ -1,0 +1,57 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>School O‘qituvchi</title>
+  <link rel="stylesheet" href="{% static 'css/teacher-main-style.css' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
+      </div>
+      <h3 class="sidebar-title">School O‘qituvchi</h3>
+      <nav class="menu">
+        <a href="/teachers/" ><img src="{% static 'icons/Asosiy.png' %}" alt=""> Asosiy</a>
+        <a href="/classes/"  ><img src="{% static 'icons/O‘quvchi.png' %}" alt=""> Siniflar</a>
+        <a href="/jadval/" ><img src="{% static 'icons/O‘qituvchi.png' %}" alt=""> Jadval</a>
+        <a href="/sozlamalar/"><img src="{% static 'icons/sozlamalar.png' %}" alt=""> Sozlamalar</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+      <!-- Topbar -->
+      <div class="topbar">
+        <input type="text" placeholder="Qidiruv">
+        <div class="icons">
+          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell"></a>
+          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile"></a>
+        </div>
+      </div>
+
+      <!-- Profile Section -->
+      <div class="profile-section">
+        <div class="profile-photo">
+          <img src="{% static 'img/avatarprofile.png' %}" alt="User">
+        </div>
+        <div class="profile-info">
+          <h2>F.I.O: </h2>
+          <p>Fan: Matematika</p>
+          <p>Telefon: +998 90 123 45 67</p>
+          <p>Email: teacher@mail.com</p>
+          <p>Manzil: Qo'qon, Chorsu</p>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
