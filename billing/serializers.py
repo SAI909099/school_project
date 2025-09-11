@@ -1,0 +1,41 @@
+from rest_framework import serializers
+from academics.models import Student
+from .models import TuitionPlan, Invoice, Payment
+
+class TuitionPlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TuitionPlan
+        fields = ('id', 'clazz', 'amount_uzs')
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    total_due_uzs = serializers.SerializerMethodField()
+    balance_uzs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invoice
+        fields = (
+            'id','student','month','amount_uzs','discount_uzs','penalty_uzs','paid_uzs','status','due_date','notes',
+            'total_due_uzs','balance_uzs'
+        )
+        read_only_fields = ('paid_uzs','status')
+
+    def get_total_due_uzs(self, obj):
+        return int(obj.total_due_uzs)
+
+    def get_balance_uzs(self, obj):
+        return int(obj.balance_uzs)
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = ('id','student','invoice','amount_uzs','method','paid_at','receipt_no','note')
+
+    def validate(self, data):
+        inv = data.get('invoice')
+        if not inv:
+            raise serializers.ValidationError('invoice is required')
+        if inv.student_id != data.get('student').id:
+            raise serializers.ValidationError('student does not match invoice.student')
+        if data.get('amount_uzs', 0) <= 0:
+            raise serializers.ValidationError('amount_uzs must be > 0')
+        return data

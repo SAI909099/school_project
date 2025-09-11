@@ -23,3 +23,18 @@ class StudentAdmin(admin.ModelAdmin):
     list_display = ('id', 'last_name', 'first_name', 'clazz', 'status')
     search_fields = ('last_name', 'first_name', 'parent_phone')
     list_filter = ('status', 'clazz')
+
+from django.contrib import admin
+from .models import (
+    Subject, Teacher, SchoolClass, Student,
+    StudentGuardian, ScheduleEntry, Attendance, Grade, GradeScale, GPAConfig
+)
+
+# keep previous admin classes
+
+admin.site.register(StudentGuardian)
+admin.site.register(ScheduleEntry)
+admin.site.register(Attendance)
+admin.site.register(Grade)
+admin.site.register(GradeScale)
+admin.site.register(GPAConfig)

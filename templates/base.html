@@ -1,0 +1,40 @@
+{% load static %}
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Maktab Tizimi{% endblock %}</title>
+
+  <!-- Core CSS bundle -->
+  <link rel="stylesheet" href="{% static 'css/main.css' %}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <h1 class="brand"><a href="/">Maktab Tizimi</a></h1>
+      <nav class="nav">
+        <a href="/">Bosh sahifa</a>
+        <a href="/dashboard/">Admin</a>
+        <a href="/students/">O‘quvchilar</a>
+        <a href="/teachers/">O‘qituvchilar</a>
+        <a href="/finance/">Moliya</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <small>&copy; 2025 Maktab Tizimi</small>
+    </div>
+  </footer>
+
+  <script src="{% static 'js/main.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

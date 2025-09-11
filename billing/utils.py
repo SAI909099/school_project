@@ -1,0 +1,10 @@
+from datetime import date
+from calendar import monthrange
+
+def month_first(day: date) -> date:
+    return day.replace(day=1)
+
+def parse_month(s: str) -> date:
+    # "YYYY-MM" → first day of month
+    y, m = s.split('-')
+    return date(int(y), int(m), 1)

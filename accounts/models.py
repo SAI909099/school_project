@@ -10,6 +10,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         TEACHER = 'teacher', 'O‘qituvchi'
         ACCOUNTANT = 'accountant', 'Hisobchi'
         REGISTRAR = 'registrar', 'Ro‘yxatga oluvchi'
+        PARENT = 'parent', 'Ota/Ona'  # NEW
 
     phone = models.CharField(max_length=20, unique=True, db_index=True)
     first_name = models.CharField(max_length=100, blank=True)

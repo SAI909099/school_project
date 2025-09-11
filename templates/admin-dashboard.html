@@ -1,0 +1,119 @@
+{#{% extends 'base.html' %}#}
+{% load static %}
+{#{% block title %}Dreams School Admin{% endblock %}#}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/admin-style.css' %}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <!-- ЛЕВАЯ СТОРОНА: Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">
+      <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
+    </div>
+
+    <h3 class="sidebar-title">School Admin</h3>
+
+    <nav class="menu">
+      <a href="#" class="active">
+        <img src="{% static 'icons/Asosiy.png' %}" alt="Home">
+        <span>Asosiy</span>
+      </a>
+      <a href="#">
+        <img src="{% static 'icons/O‘quvchi.png' %}" alt="O'quvchi">
+        <span>O‘quvchi</span>
+      </a>
+      <a href="#">
+        <img src="{% static 'icons/O‘qituvchi.png' %}" alt="O‘qituvchi">
+        <span>O‘qituvchi</span>
+      </a>
+      <a href="#">
+        <img src="{% static 'icons/Jadval.png' %}" alt="Jadval">
+        <span>Jadval</span>
+      </a>
+      <a href="#">
+        <img src="{% static 'icons/Moliya.png' %}" alt="Moliya">
+        <span>Moliya</span>
+      </a>
+      <a href="#">
+        <img src="{% static 'icons/sozlamalar.png' %}" alt="Sozlamalar">
+        <span>Sozlamalar</span>
+      </a>
+    </nav>
+  </aside>
+
+  <!-- ПРАВАЯ СТОРОНА: Content -->
+  <main class="content">
+    <!-- Верхняя панель -->
+    <header class="topbar">
+      <div class="search">
+        <input type="text" placeholder="Qidiruv">
+      </div>
+      <div class="top-icons">
+        <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell"></a>
+        <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile"></a>
+      </div>
+    </header>
+
+    <!-- Статистика карточки -->
+    <section class="stats">
+      <div class="card">
+        <p>Faol O‘quvchilar</p>
+        <h2>250</h2>
+      </div>
+      <div class="card">
+        <p>Balans</p>
+        <h2>3.000.000</h2>
+      </div>
+      <div class="card">
+        <p>Tolov qilganlar soni</p>
+        <h2>200</h2>
+      </div>
+      <div class="card">
+        <p>Qarzdorlar soni</p>
+        <h2>50</h2>
+      </div>
+    </section>
+
+    <!-- Графики -->
+    <section class="charts">
+      <div class="chart-box">
+        <h3>Oylik foyda</h3>
+        <img src="" alt="Chart">
+      </div>
+      <div class="chart-box">
+        <h3>Yangi o‘quvchilar</h3>
+        <img src="" alt="Chart">
+      </div>
+    </section>
+
+    <!-- Доходы и расходы -->
+    <section class="tables">
+      <div class="table green">
+        <h3>Songi kirimlar</h3>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+      </div>
+      <div class="table red">
+        <h3>Songi chiqimlar</h3>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+        <p>Test.T .................................................................. 1.000.000 so‘m</p>
+      </div>
+    </section>
+  </main>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{# Add admin.js if needed: <script src="{% static 'js/admin.js' %}"></script> #}
+{% endblock %}

@@ -26,6 +26,7 @@ INSTALLED_APPS = [
 
     'accounts',
     'academics',
+    'billing',
 ]
 
 MIDDLEWARE = [
@@ -117,6 +118,11 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.FormParser',
+        'rest_framework.parsers.MultiPartParser',
+    ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
@@ -142,3 +148,8 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL', cast=bool, default=True)
+
+
+TEMPLATES[0]["DIRS"] += [BASE_DIR / "templates"]
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
