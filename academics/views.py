@@ -1,10 +1,15 @@
+# academics/views.py
 from collections import defaultdict
 from datetime import date, timedelta
+import re
+import secrets
 
-from django.db.models import Avg, Q
-from rest_framework import viewsets, permissions
+from django.contrib.auth import get_user_model
+from django.db.models import Avg, Count, Q
+from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import (
     StudentGuardian, ScheduleEntry, Attendance, Grade, GradeScale, GPAConfig,
@@ -14,11 +19,27 @@ from .permissions import IsAdminOrRegistrarWrite, IsAdminOrTeacherWrite
 from .serializers import (
     ScheduleEntrySerializer, AttendanceSerializer, GradeSerializer,
     GradeScaleSerializer, GPAConfigSerializer,
-    SubjectSerializer, TeacherSerializer, SchoolClassSerializer, StudentSerializer
+    SubjectSerializer, TeacherSerializer, SchoolClassSerializer, StudentSerializer,
+    ClassMiniSerializer, StudentLiteSerializer
 )
 
+User = get_user_model()
 
-# ---- CRUD ----
+# =========================
+# Helpers (GPA)
+# =========================
+
+def _active_scale():
+    return GradeScale.objects.filter(active=True).first() or GradeScale.objects.create()
+
+
+def _active_weights():
+    return GPAConfig.objects.filter(active=True).first() or GPAConfig.objects.create()
+
+
+# =========================
+# CRUD ViewSets
+# =========================
 
 class SubjectViewSet(viewsets.ModelViewSet):
     queryset = Subject.objects.all().order_by('name')
@@ -33,7 +54,13 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
 
 class SchoolClassViewSet(viewsets.ModelViewSet):
-    queryset = SchoolClass.objects.select_related('class_teacher').all().order_by('name')
+    """
+    Full CRUD for classes + rich class actions (attendance/gradebooks/gpa).
+    """
+    queryset = (SchoolClass.objects
+                .select_related('class_teacher')
+                .all()
+                .order_by('name'))
     serializer_class = SchoolClassSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
 
@@ -42,20 +69,26 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
         students = Student.objects.filter(clazz_id=pk).order_by('last_name', 'first_name')
         return Response(StudentSerializer(students, many=True).data)
 
+    # ---- Weekly helpers ----
     def _week_range(self, anchor: date):
         # Monday..Saturday (6 days)
         start = anchor - timedelta(days=anchor.weekday())  # Monday
         end = start + timedelta(days=5)
         return start, end
 
+    # ---- Attendance grid for a class (Mon..Sat) ----
     @action(detail=True, methods=['get'])
     def attendance_grid(self, request, pk=None):
         # ?week_of=YYYY-MM-DD (any day within the week)
         d = request.query_params.get('week_of')
         anchor = date.fromisoformat(d) if d else date.today()
         start, end = self._week_range(anchor)
-        students = list(Student.objects.filter(clazz_id=pk)
-                        .order_by('last_name', 'first_name').values('id', 'first_name', 'last_name'))
+
+        students = list(
+            Student.objects.filter(clazz_id=pk)
+            .order_by('last_name', 'first_name')
+            .values('id', 'first_name', 'last_name')
+        )
         att = Attendance.objects.filter(clazz_id=pk, date__range=(start, end))
         grid = defaultdict(dict)
         for a in att:
@@ -63,22 +96,30 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
         days = [(start + timedelta(days=i)).isoformat() for i in range(6)]
         return Response({'students': students, 'days': days, 'grid': grid})
 
+    # ---- Daily gradebook (Mon..Sat average) ----
     @action(detail=True, methods=['get'])
     def gradebook_daily(self, request, pk=None):
         d = request.query_params.get('week_of')
         anchor = date.fromisoformat(d) if d else date.today()
         start, end = self._week_range(anchor)
-        students = list(Student.objects.filter(clazz_id=pk)
-                        .order_by('last_name', 'first_name').values('id', 'first_name', 'last_name'))
+
+        students = list(
+            Student.objects.filter(clazz_id=pk)
+            .order_by('last_name', 'first_name')
+            .values('id', 'first_name', 'last_name')
+        )
         grades = Grade.objects.filter(student__clazz_id=pk, type='daily', date__range=(start, end))
         grid = defaultdict(lambda: defaultdict(list))  # student -> day -> [scores]
         for g in grades:
             grid[g.student_id][g.date.isoformat()].append(g.score)
         days = [(start + timedelta(days=i)).isoformat() for i in range(6)]
-        grid_avg = {sid: {day: (sum(vals)/len(vals) if vals else None) for day, vals in daymap.items()}
-                    for sid, daymap in grid.items()}
+        grid_avg = {
+            sid: {day: (sum(vals) / len(vals) if vals else None) for day, vals in daymap.items()}
+            for sid, daymap in grid.items()
+        }
         return Response({'students': students, 'days': days, 'grid': grid_avg})
 
+    # ---- Exam gradebook ----
     @action(detail=True, methods=['get'])
     def gradebook_exams(self, request, pk=None):
         term = request.query_params.get('term', '')
@@ -90,6 +131,7 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
             data[g.student_id].append({'subject': g.subject_id, 'date': g.date, 'score': g.score})
         return Response(data)
 
+    # ---- Final gradebook ----
     @action(detail=True, methods=['get'])
     def gradebook_final(self, request, pk=None):
         term = request.query_params.get('term', '')
@@ -101,6 +143,7 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
             data[g.student_id].append({'subject': g.subject_id, 'date': g.date, 'score': g.score})
         return Response(data)
 
+    # ---- GPA ranking for a class ----
     @action(detail=True, methods=['get'])
     def gpa_ranking(self, request, pk=None):
         term = request.query_params.get('term', '')
@@ -108,30 +151,33 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
         weights = _active_weights()
         students = Student.objects.filter(clazz_id=pk)
         result = []
+
+        subj_ids = list(Subject.objects.values_list('id', flat=True))
         for s in students:
-            subj_ids = Subject.objects.values_list('id', flat=True)
             subj_gpas = []
             for sub in subj_ids:
                 q = Q(student=s, subject_id=sub)
                 if term:
                     q &= Q(term=term)
                 g_daily = Grade.objects.filter(q & Q(type='daily')).aggregate(avg=Avg('score'))['avg']
-                g_exam  = Grade.objects.filter(q & Q(type='exam')).aggregate(avg=Avg('score'))['avg']
+                g_exam = Grade.objects.filter(q & Q(type='exam')).aggregate(avg=Avg('score'))['avg']
                 g_final = Grade.objects.filter(q & Q(type='final')).aggregate(avg=Avg('score'))['avg']
+
                 def gp(x):
                     if not x:
                         return None
                     return float(scale.point_for(round(x)))
+
                 parts = [
                     (gp(g_daily), float(weights.weight_daily)),
-                    (gp(g_exam),  float(weights.weight_exam)),
+                    (gp(g_exam), float(weights.weight_exam)),
                     (gp(g_final), float(weights.weight_final)),
                 ]
                 if any(p[0] is not None for p in parts):
-                    total = sum((p*w for p, w in parts if p is not None))
-                    wsum  = sum((w for p, w in parts if p is not None))
-                    subj_gpas.append(total/wsum if wsum else 0)
-            overall = sum(subj_gpas)/len(subj_gpas) if subj_gpas else 0.0
+                    total = sum((p * w for p, w in parts if p is not None))
+                    wsum = sum((w for p, w in parts if p is not None))
+                    subj_gpas.append(total / wsum if wsum else 0)
+            overall = sum(subj_gpas) / len(subj_gpas) if subj_gpas else 0.0
             result.append({'student_id': s.id,
                            'name': f"{s.last_name} {s.first_name}",
                            'gpa': round(overall, 2)})
@@ -142,6 +188,9 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
 
 
 class StudentViewSet(viewsets.ModelViewSet):
+    """
+    Full CRUD for students, scoped by teacher for GET list.
+    """
     queryset = Student.objects.select_related('clazz').all()
     serializer_class = StudentSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
@@ -242,14 +291,17 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         u = request.user
         if getattr(u, 'role', None) not in ('admin', 'teacher'):
             return Response({'detail': 'Forbidden'}, status=403)
+
         clazz = request.data.get('class')
         dt = request.data.get('date')
         subject = request.data.get('subject')
         entries = request.data.get('entries', [])
+
         try:
             t = u.teacher_profile if getattr(u, 'role', None) == 'teacher' else None
         except Teacher.DoesNotExist:
             t = None
+
         ids = []
         for e in entries:
             obj, _ = Attendance.objects.update_or_create(
@@ -329,7 +381,7 @@ class GradeViewSet(viewsets.ModelViewSet):
         clazz = request.query_params.get('class')
         subject = request.query_params.get('subject')
         gtype = request.query_params.get('type')
-        date = request.query_params.get('date')
+        dt = request.query_params.get('date')
         term = request.query_params.get('term', '')
 
         if clazz:
@@ -338,27 +390,18 @@ class GradeViewSet(viewsets.ModelViewSet):
             qs = qs.filter(subject_id=subject)
         if gtype:
             qs = qs.filter(type=gtype)
-        if date:
-            qs = qs.filter(date=date)
+        if dt:
+            qs = qs.filter(date=dt)
         if term:
             qs = qs.filter(term=term)
 
-        # Return minimal payload needed to prefill
         data = qs.values('student_id', 'score', 'comment')
         return Response(list(data))
 
 
-# ---- GPA helpers ----
-
-def _active_scale():
-    return GradeScale.objects.filter(active=True).first() or GradeScale.objects.create()
-
-
-def _active_weights():
-    return GPAConfig.objects.filter(active=True).first() or GPAConfig.objects.create()
-
-
-# ---- Dashboards / Parent ----
+# =========================
+# Dashboards / Parent
+# =========================
 
 class TeacherDashViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
@@ -372,7 +415,10 @@ class TeacherDashViewSet(viewsets.ViewSet):
             t = u.teacher_profile
         except Teacher.DoesNotExist:
             return Response([])
-        classes = SchoolClass.objects.filter(Q(class_teacher=t) | Q(schedule__teacher=t)).distinct().order_by('name')
+        classes = (SchoolClass.objects
+                   .filter(Q(class_teacher=t) | Q(schedule__teacher=t))
+                   .distinct()
+                   .order_by('name'))
         return Response(SchoolClassSerializer(classes, many=True).data)
 
 
@@ -395,6 +441,7 @@ class ParentViewSet(viewsets.ViewSet):
             return Response({'detail': 'Forbidden'}, status=403)
         if not StudentGuardian.objects.filter(guardian=u, student_id=student_id).exists():
             return Response({'detail': 'Forbidden'}, status=403)
+
         s = Student.objects.select_related('clazz').get(id=student_id)
         timetable = ScheduleEntry.objects.filter(clazz=s.clazz).order_by('weekday', 'start_time')
 
@@ -410,7 +457,7 @@ class ParentViewSet(viewsets.ViewSet):
         summary = {}
         for sub in Subject.objects.all():
             g_daily = Grade.objects.filter(student=s, subject=sub, type='daily').aggregate(avg=Avg('score'))['avg']
-            g_exam  = Grade.objects.filter(student=s, subject=sub, type='exam').aggregate(avg=Avg('score'))['avg']
+            g_exam = Grade.objects.filter(student=s, subject=sub, type='exam').aggregate(avg=Avg('score'))['avg']
             g_final = Grade.objects.filter(student=s, subject=sub, type='final').aggregate(avg=Avg('score'))['avg']
 
             def gp(x):
@@ -418,21 +465,21 @@ class ParentViewSet(viewsets.ViewSet):
 
             parts = [
                 (gp(g_daily), float(weights.weight_daily)),
-                (gp(g_exam),  float(weights.weight_exam)),
+                (gp(g_exam), float(weights.weight_exam)),
                 (gp(g_final), float(weights.weight_final)),
             ]
             if any(p[0] is not None for p in parts):
-                total = sum((p*w for p, w in parts if p is not None))
-                wsum  = sum((w for p, w in parts if p is not None))
-                subject_gpa = total/wsum if wsum else 0
+                total = sum((p * w for p, w in parts if p is not None))
+                wsum = sum((w for p, w in parts if p is not None))
+                subject_gpa = total / wsum if wsum else 0
                 summary[sub.name] = {
                     'daily_avg': round(g_daily, 2) if g_daily else None,
-                    'exam_avg':  round(g_exam, 2) if g_exam else None,
+                    'exam_avg': round(g_exam, 2) if g_exam else None,
                     'final_avg': round(g_final, 2) if g_final else None,
                     'gpa_subject': round(subject_gpa, 2),
                 }
 
-        # overall GPA and rank in class
+        # overall GPA + rank
         ranking = SchoolClassViewSet().gpa_ranking(request, pk=s.clazz_id).data['ranking']
         overall = next((r['gpa'] for r in ranking if r['student_id'] == s.id), 0.0)
         rank = next((r['rank'] for r in ranking if r['student_id'] == s.id), None)
@@ -450,17 +497,184 @@ class ParentViewSet(viewsets.ViewSet):
         return Response(payload)
 
 
-from rest_framework import viewsets, permissions
-from .models import GradeScale, GPAConfig
-from .serializers import GradeScaleSerializer, GPAConfigSerializer
-from .permissions import IsAdminOrRegistrarWrite
-
 class GradeScaleViewSet(viewsets.ModelViewSet):
     queryset = GradeScale.objects.all()
     serializer_class = GradeScaleSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
 
+
 class GPAConfigViewSet(viewsets.ModelViewSet):
     queryset = GPAConfig.objects.all()
     serializer_class = GPAConfigSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
+
+
+# =========================
+# READ-ONLY "Directory" APIs (for Students Directory UI)
+# =========================
+
+class ClassDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Lightweight classes list with student counts & teacher name
+    (safe for public directory page).
+    """
+    queryset = (SchoolClass.objects
+                .all()
+                .annotate(students_count=Count("students"))
+                .order_by('name'))
+    serializer_class = ClassMiniSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    @action(detail=True, methods=["get"])
+    def students(self, request, pk=None):
+        qs = Student.objects.filter(clazz_id=pk).select_related("clazz")
+        return Response(StudentLiteSerializer(qs, many=True).data)
+
+
+class StudentDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Global student search across the school.
+    """
+    queryset = Student.objects.select_related("clazz").all()
+    serializer_class = StudentLiteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(
+                Q(first_name__icontains=q) |
+                Q(last_name__icontains=q) |
+                Q(clazz__name__icontains=q) |
+                Q(parent_name__icontains=q) |
+                Q(parent_phone__icontains=q)
+            )
+        return qs.order_by("last_name", "first_name")
+
+
+# =========================
+# OPERATOR one-shot enroll endpoint
+# =========================
+
+def _clean_phone(p: str) -> str:
+    """Simple phone normalizer: keep digits and add a leading '+'. Adjust to your locale rules."""
+    if not p:
+        return ''
+    digits = re.sub(r'\D+', '', p)
+    if not digits:
+        return ''
+    if digits.startswith('998'):
+        return '+' + digits
+    if digits.startswith('+'):
+        return digits
+    return '+' + digits
+
+
+# academics/views.py (only this class needs replacing)
+# academics/views.py (replace just this view)
+import re, secrets
+from django.contrib.auth import get_user_model
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import SchoolClass, Student, StudentGuardian
+
+User = get_user_model()
+
+def _clean_phone(p: str) -> str:
+    """Normalize to +998… digits-only with leading + if needed."""
+    if not p:
+        return ''
+    digits = re.sub(r'\D+', '', p)
+    if not digits:
+        return ''
+    # adapt to your locale if needed
+    if digits.startswith('998'):
+        return '+' + digits
+    return '+' + digits  # fallback: just add +
+
+class OperatorEnrollView(APIView):
+    """
+    POST /api/operator/enroll/
+    {
+      "first_name": "Ali", "last_name": "Karimov",
+      "gender": "m|f",             (optional)
+      "dob": "YYYY-MM-DD",         (optional)
+      "class_id": 12,              (required)
+      "parent_name": "Karim aka",  (optional)
+      "phone1": "+998901112233",   (required) -> parent login (User.phone)
+      "phone2": "+998907778899"    (optional)
+    }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'registrar', 'operator'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        d = request.data
+        first_name = (d.get('first_name') or '').strip()
+        last_name  = (d.get('last_name')  or '').strip()
+        class_id   = d.get('class_id')
+        parent_name= (d.get('parent_name') or '').strip()
+        phone1     = _clean_phone(d.get('phone1') or '')
+        phone2     = _clean_phone(d.get('phone2') or '')
+        dob        = d.get('dob') or None
+        gender     = d.get('gender') or 'm'
+
+        if not first_name or not last_name or not class_id or not phone1:
+            return Response({'detail': 'first_name, last_name, class_id, phone1 are required'}, status=400)
+
+        try:
+            clazz = SchoolClass.objects.get(id=class_id)
+        except SchoolClass.DoesNotExist:
+            return Response({'detail':'Class not found'}, status=404)
+
+        # 🔧 FIX: use phone instead of username
+        temp_password = None
+        parent_user, created = User.objects.get_or_create(
+            phone=phone1,
+            defaults={
+                'first_name': parent_name or 'Ota-ona',
+                'last_name': '',
+                # add other required defaults if your custom User needs them
+            }
+        )
+
+        # ensure role is 'parent' and set password for new accounts
+        if getattr(parent_user, 'role', '') != 'parent':
+            parent_user.role = 'parent'
+        if created:
+            temp_password = secrets.token_urlsafe(6)
+            # If your custom user is AbstractBaseUser with USERNAME_FIELD='phone',
+            # this is the right way to set password:
+            parent_user.set_password(temp_password)
+        parent_user.save()
+
+        # create student
+        s = Student.objects.create(
+            first_name=first_name,
+            last_name=last_name,
+            dob=dob,
+            gender=gender,
+            clazz=clazz,
+            parent_name=parent_name,
+            parent_phone=phone1,
+            address='',
+            status='active',
+        )
+        # optional: store phone2 on a future field, e.g., guardian_phone2
+
+        # link student ↔ parent
+        StudentGuardian.objects.get_or_create(student=s, guardian=parent_user)
+
+        return Response({
+            'student_id': s.id,
+            'class_name': clazz.name,
+            # keep response keys that your JS expects:
+            'parent_username': phone1,     # (login uses phone)
+            'temp_password'  : temp_password,  # only present if created
+        }, status=201)

@@ -1,5 +1,4 @@
 {% load static %}
-
 <!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -20,10 +19,10 @@
       </div>
       <h3 class="sidebar-title">School Ota Ona</h3>
       <nav class="menu">
-        <a href="/otaona/"><img src="{% static 'icons/Asosiy-white.png' %}" alt="Asosiy"> Asosiy</a>
-        <a href="/otaona/davomat/" ><img src="{% static 'icons/O‘quvchi.png' %}" alt="O‘quvchi"> Davomat</a>
-        <a href="/otaona/baholar/"><img src="{% static 'icons/O‘qituvchi.png' %}" alt=""> Baholar</a>
-        <a href="/otaona/sozlamalar/"><img src="{% static 'icons/sozlamalar.png' %}" alt=""> Sozlamalar</a>
+        <a href="/otaona/" class="active"><img src="{% static 'icons/Asosiy-white.png' %}" alt="Asosiy"> Asosiy</a>
+        <a href="/otaona/davomat/"><img src="{% static 'icons/O‘quvchi.png' %}" alt="O‘quvchi"> Davomat</a>
+        <a href="/otaona/baholar/"><img src="{% static 'icons/O‘qituvchi.png' %}" alt="Baholar"> Baholar</a>
+        <a href="/otaona/sozlamalar/"><img src="{% static 'icons/sozlamalar.png' %}" alt="Sozlamalar"> Sozlamalar</a>
       </nav>
     </aside>
 
@@ -33,24 +32,29 @@
       <div class="topbar">
         <input type="text" placeholder="Qidiruv">
         <div class="icons">
-          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell"></a>
-          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile"></a>
+          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Xabarlar"></a>
+          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profil"></a>
         </div>
       </div>
 
       <!-- Profile Section -->
-      <div class="profile-section">
+      <div class="profile-section card">
         <div class="profile-photo">
           <img src="{% static 'img/avatarprofile.png' %}" alt="User">
         </div>
         <div class="profile-info">
           <h2>F.I.O: </h2>
-          <p>Telefon: +998 90 123 45 67</p>
-          <p>Email: student@mail.com</p>
-          <p>Manzil: Qo'qon, Chorsu</p>
+          <p>Telefon: —</p>
+          <p>Email: —</p>
+          <p>Manzil: —</p>
         </div>
       </div>
+
+      <!-- Children section (JS will inject cards here) -->
+      <section id="children-section" class="children-section" aria-live="polite"></section>
     </main>
   </div>
+
+  <script src="{% static 'js/parents-main.js' %}"></script>
 </body>
 </html>

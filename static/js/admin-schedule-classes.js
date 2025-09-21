@@ -1,3 +1,4 @@
+// static/js/admin-schedule-classes.js
 (function(){
   // ===== Auth & API =====
   const API_BASE = (window.API_BASE || '/api/').replace(/\/+$/, '');
@@ -40,8 +41,12 @@
   // ===== Data caches =====
   let CLASSES=[], SUBJECTS=[], TEACHERS=[];
   let SELECTED_CLASS=null;
-  // cell key: `${weekday}_${period}` → existing schedule entry or null
-  let CELL_MAP=new Map();
+  let CELL_MAP=new Map(); // key: `${weekday}_${period}` → existing entry or null
+
+  // NEW: cache teacher busy time (by weekday)
+  // key `${teacherId}_${weekday}` → [{id, start_time, end_time, room, clazz_name}]
+  const BUSY_CACHE = new Map();
+  function busyKey(tid, wd){ return `${tid}_${wd}`; }
 
   function el(t,attrs={},...kids){
     const e=document.createElement(t);
@@ -59,7 +64,6 @@
     let count = 0;
     const wanted = subjectId ? Number(subjectId) : null;
     TEACHERS.forEach(t=>{
-      // serializer provides t.specialty (id) and t.specialty_name
       const specId = t.specialty ?? null;
       if (!wanted || (specId && Number(specId) === wanted)){
         const txt = t.user_full_name || ('#'+t.user);
@@ -75,7 +79,6 @@
 
     if(preselectValue != null){
       selectEl.value = String(preselectValue);
-      // if filtered out, ensure it stays empty
       if(selectEl.value !== String(preselectValue)) selectEl.value = '';
     }
   }
@@ -154,23 +157,26 @@
         const td = el('td', {});
         const key = `${wd}_${p}`;
 
-        // subject select
         const subjSel = el('select', {'data-role':'subject'});
         subjSel.append(el('option',{value:''},'— fan —'));
         SUBJECTS.forEach(s=> subjSel.append(el('option',{value:s.id}, s.name)));
 
-        // teacher select (will be filtered by subject)
         const teachSel = el('select', {'data-role':'teacher'});
-
-        // initially show all teachers until subject chosen
         fillTeacherOptions(teachSel, null, null);
 
         const roomInp = el('input', {type:'text','data-role':'room', placeholder:'xona', class:'room'});
 
-        // when subject changes → refilter teachers
+        // filter teachers when subject changes
         subjSel.addEventListener('change', ()=>{
           const currentChosenTeacher = teachSel.value || null;
           fillTeacherOptions(teachSel, subjSel.value || null, currentChosenTeacher);
+          scheduleConflictCheck(td, wd, p); // recheck after subject filtering
+        });
+
+        // NEW: when teacher/time changes → check cross-class conflicts
+        teachSel.addEventListener('change', ()=> scheduleConflictCheck(td, wd, p));
+        td.addEventListener('input', (e)=>{
+          if (e.target.matches('input[type="time"]')) scheduleConflictCheck(td, wd, p);
         });
 
         const wrap = el('div', {'data-key':key, class:'cell-wrap'}, subjSel, teachSel, roomInp);
@@ -186,7 +192,6 @@
   async function loadScheduleForClass(){
     if(!SELECTED_CLASS) return;
     const data = await api(`/schedule/class/${SELECTED_CLASS.id}/`);
-    // group by weekday, order by time
     const byWd = {1:[],2:[],3:[],4:[],5:[],6:[]};
     data.forEach(x=> { if(byWd[x.weekday]) byWd[x.weekday].push(x); });
     Object.values(byWd).forEach(arr=> arr.sort((a,b)=> String(a.start_time).localeCompare(String(b.start_time)) ));
@@ -203,15 +208,11 @@
         const entry = byWd[wd][rowIdx] || null;
 
         if(entry){
-          // 1) set subject
           subjSel.value  = String(entry.subject);
-          // 2) refilter teachers based on that subject, then set teacher
           fillTeacherOptions(teachSel, subjSel.value, String(entry.teacher));
-          // 3) room
           roomInp.value  = entry.room || '';
           CELL_MAP.set(key, entry);
         }else{
-          // keep selects empty; ensure teacher list is filtered by (empty) subject = all
           fillTeacherOptions(teachSel, null, null);
           roomInp.value = '';
           CELL_MAP.set(key, null);
@@ -220,22 +221,55 @@
     });
 
     ok('Mavjud jadval yuklandi ✅');
-    runConflicts(); // highlight if any
+    await runConflicts(); // includes cross-class check
   }
 
-  // ===== Conflict detection (teacher/time & room/time collisions)
-  function runConflicts(){
-    table.querySelectorAll('.conflict').forEach(n=> n.classList.remove('conflict'));
+  // ===== Helpers for time overlap =====
+  function toMin(t){ if(!t) return null; const [h,m]=t.split(':'); return (+h)*60 + (+m); }
+  function overlap(a1,a2,b1,b2){
+    if([a1,a2,b1,b2].some(v=>v==null)) return false;
+    return a1 < b2 && b1 < a2; // strict overlap
+  }
+
+  // ===== Cross-class busy fetch (cached) =====
+  async function getTeacherBusyForDay(teacherId, weekday){
+    if(!teacherId || !weekday) return [];
+    const key = busyKey(teacherId, weekday);
+    if(BUSY_CACHE.has(key)) return BUSY_CACHE.get(key);
+
+    // get all entries for this teacher, then keep only this weekday
+    const all = await api(`/schedule/?teacher=${teacherId}`);
+    const filtered = (Array.isArray(all)?all:all.results||[])
+      .filter(x => Number(x.weekday) === Number(weekday))
+      .map(x => ({
+        id: x.id,
+        start: x.start_time?.slice(0,5) || '',
+        end:   x.end_time?.slice(0,5) || '',
+        room:  x.room || '',
+        class_name: x.class_name || '', // our serializer already exposes class_name
+        clazz: x.clazz
+      }));
+    BUSY_CACHE.set(key, filtered);
+    return filtered;
+  }
+
+  // ===== Conflict detection (in-grid duplicates + cross-class) =====
+  async function runConflicts(){
+    // clear old markers
+    table.querySelectorAll('.conflict').forEach(n=> {
+      n.classList.remove('conflict');
+      n.removeAttribute('title');
+    });
 
     const rows = Array.from(table.querySelectorAll('tbody tr'));
     const seenTeach = new Map();
     const seenRoom  = new Map();
 
+    // 1) In-grid duplicates (same teacher/room at same weekday/period)
     rows.forEach((tr,rowIdx)=>{
       const period=rowIdx+1;
       for(let wd=1; wd<=6; wd++){
         const container = tr.children[wd].querySelector('.cell-wrap');
-        const subjSel = container.querySelector('[data-role="subject"]');
         const teachSel= container.querySelector('[data-role="teacher"]');
         const roomInp = container.querySelector('[data-role="room"]');
 
@@ -252,6 +286,41 @@
         }
       }
     });
+
+    // 2) Cross-class conflicts against DB (other classes)
+    for (let rowIdx=0; rowIdx<rows.length; rowIdx++){
+      const tr = rows[rowIdx];
+      const period = rowIdx+1;
+      const timeInputs = tr.querySelectorAll('input[type="time"]');
+      const start = timeInputs[0]?.value || '';
+      const end   = timeInputs[1]?.value || '';
+      const sMin = toMin(start), eMin = toMin(end);
+
+      for (let wd=1; wd<=6; wd++){
+        const td = tr.children[wd];
+        const container = td.querySelector('.cell-wrap');
+        const teachSel= container.querySelector('[data-role="teacher"]');
+        const teacherId = teachSel.value ? Number(teachSel.value) : null;
+        if(!teacherId || !start || !end) continue;
+
+        // ignore conflict with our own existing entry in this class cell (when editing)
+        const existing = CELL_MAP.get(`${wd}_${period}`) || null;
+        const exId = existing?.id || null;
+
+        const busy = await getTeacherBusyForDay(teacherId, wd);
+        const clash = busy.find(b => overlap(sMin, eMin, toMin(b.start), toMin(b.end)) && b.id !== exId && b.clazz !== SELECTED_CLASS?.id);
+        if (clash){
+          container.classList.add('conflict');
+          container.title = `O‘qituvchi band: ${clash.class_name || 'boshqa sinf'} ${clash.start}–${clash.end}`;
+        }
+      }
+    }
+  }
+
+  // Check a single cell quickly (called on changes)
+  async function scheduleConflictCheck(td, wd, period){
+    // rerun full check is simplest and keeps logic in one place
+    await runConflicts();
   }
 
   table.addEventListener('change', (e)=>{
@@ -262,6 +331,14 @@
   async function saveAll(){
     hideMsg();
     if(!SELECTED_CLASS){ err('Sinf tanlanmagan.'); return; }
+
+    // block save if conflicts exist
+    await runConflicts();
+    const anyConflict = table.querySelector('.conflict');
+    if(anyConflict){
+      err('Konflikt bor: qizil bilan belgilangan kataklarni tuzating.');
+      return;
+    }
 
     const rows = Array.from(table.querySelectorAll('tbody tr'));
     const ops = [];
@@ -308,6 +385,8 @@
       if(bad){
         const t = await bad.text().catch(()=> ''); throw new Error(t || `HTTP ${bad.status}`);
       }
+      // clear busy cache so next edits re-check against fresh data
+      BUSY_CACHE.clear();
       ok('Jadval saqlandi ✅');
       await loadScheduleForClass(); // refresh IDs
     }catch(e){
@@ -325,7 +404,6 @@
   (async function init(){
     try{
       const okGuard = await loadLookups(); if(!okGuard) return;
-      // choose first class by default
       SELECTED_CLASS = CLASSES[0] || null;
       renderClassList();
       setCurrentClassBadge();

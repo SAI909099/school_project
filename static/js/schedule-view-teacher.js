@@ -30,7 +30,7 @@
   const meta          = qs('#meta');
   const btnReload     = qs('#btnReload');
   const btnPrint      = qs('#btnPrint');
-  let   btnCsv        = qs('#btnCsv'); // optional (we’ll create if missing)
+  const btnCsv        = qs('#btnCsv');
   const msg           = qs('#msg');
 
   // ---- Messages
@@ -52,10 +52,8 @@
 
     // Load subjects
     SUBJECTS = await api('/subjects/');
-    if (subjectFilter) {
-      subjectFilter.innerHTML = '<option value="">(hammasi)</option>';
-      SUBJECTS.forEach(s => subjectFilter.append(el('option', { value: String(s.id) }, s.name)));
-    }
+    subjectFilter.innerHTML = '<option value="">(hammasi)</option>';
+    SUBJECTS.forEach(s => subjectFilter.append(el('option', { value: String(s.id) }, s.name)));
 
     // Load teachers (filtered by subject if selected)
     await loadTeachers();
@@ -65,15 +63,6 @@
     const tParam = url.searchParams.get('teacher');
     if (tParam && TEACHERS.some(t => String(t.id) === String(tParam))) {
       teacherSel.value = String(tParam);
-    }
-
-    // Ensure CSV button exists; create if missing
-    if (!btnCsv) {
-      const controls = teacherSel?.closest('.card') || document.body;
-      btnCsv = el('button', { id: 'btnCsv', class: 'btn', style: 'padding:10px 14px; margin-left:8px;' }, 'CSV chiqarish');
-      // place after print if available
-      (btnPrint && btnPrint.parentNode) ? btnPrint.parentNode.insertBefore(btnCsv, btnPrint.nextSibling)
-                                        : controls.append(btnCsv);
     }
 
     attachEvents();
@@ -94,15 +83,15 @@
   }
 
   function attachEvents() {
-    subjectFilter?.addEventListener('change', async () => {
+    subjectFilter.addEventListener('change', async () => {
       await loadTeachers();
       await buildForSelected();
     });
 
-    teacherSel?.addEventListener('change', buildForSelected);
-    btnReload?.addEventListener('click', buildForSelected);
-    btnPrint?.addEventListener('click', () => window.print());
-    btnCsv?.addEventListener('click', downloadCsv);
+    teacherSel.addEventListener('change', buildForSelected);
+    btnReload.addEventListener('click', buildForSelected);
+    btnPrint.addEventListener('click', () => window.print());
+    btnCsv.addEventListener('click', downloadCsv);
   }
 
   async function buildForSelected() {
@@ -114,13 +103,14 @@
 
     SELECTED_T = TEACHERS.find(t => t.id === tId) || null;
 
-    // No dedicated teacher filter on API -> pull all and filter client-side
-    const all = await api('/schedule/');
-    const data = all.filter(x => x.teacher === tId);
+    // If your backend supports ?teacher=<id> use it; otherwise we filter after fetch
+    const all = await api('/schedule/?teacher=' + tId).catch(() => api('/schedule/'));
+    const data = Array.isArray(all) ? all : (all.results || []);
+    const mine = data.filter(x => x.teacher === tId);
 
     // Group by weekday, sort by start_time
     const byWd = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
-    data.forEach(x => { if (byWd[x.weekday]) byWd[x.weekday].push(x); });
+    mine.forEach(x => { if (byWd[x.weekday]) byWd[x.weekday].push(x); });
     Object.values(byWd).forEach(a => a.sort((a, b) => String(a.start_time).localeCompare(String(b.start_time))));
 
     const maxRows = Math.max(...Object.values(byWd).map(a => a.length), 0);
@@ -145,14 +135,24 @@
 
       for (let wd = 1; wd <= 6; wd++) {
         const e = byWd[wd][i];
+
         if (e) {
+          // Build a compact slot with clear “Xona” pill:
+          const time = `${(e.start_time || '').slice(0, 5)}–${(e.end_time || '').slice(0, 5)}`;
           const subj = e.subject_name ? `Fan: ${e.subject_name}` : '';
           const cls  = e.class_name   ? `Sinf: ${e.class_name}`   : '';
-          const room = e.room         ? `Xona: ${e.room}`         : '';
-          tr.append(el('td', {}, el('div', { class: 'slot' },
-            el('b', {}, `${(e.start_time || '').slice(0, 5)}–${(e.end_time || '').slice(0, 5)}`),
-            '\n' + [subj, cls, room].filter(Boolean).join('\n')
-          )));
+          const room = e.room ? e.room : ''; // ← room comes from API
+
+          const info = [subj, cls].filter(Boolean).join('\n');
+          const roomPill = room ? el('span', {class:'pill', title:'Xona'}, `Xona: ${room}`) : null;
+
+          const slot = el('div', { class: 'slot' },
+            el('b', {}, time),
+            el('div', { class: 'meta-line' }, info),
+            roomPill ? el('div', {}, roomPill) : ''
+          );
+
+          tr.append(el('td', {}, slot));
         } else {
           tr.append(el('td', {}, ''));
         }
@@ -166,7 +166,7 @@
     if (meta) meta.textContent = `O‘qituvchi: ${name}${spec}`;
   }
 
-  // ---- CSV export
+  // ---- CSV export (includes room text because we read from rendered table)
   function tableToCsv() {
     const rows = Array.from(tbl.querySelectorAll('tr'));
     return rows.map(tr => {

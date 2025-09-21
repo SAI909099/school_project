@@ -10,12 +10,15 @@
     .panel { background:#fff; border-radius:12px; box-shadow:0 3px 6px rgba(0,0,0,.08); padding:14px; }
     .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px; }
     .controls label { font-weight:600; display:block; }
+    .btn { padding:8px 12px; border:1px solid #ddd; border-radius:8px; background:#f7f7f7; cursor:pointer; }
     .badge { background:#eef; color:#2b2a8f; padding:4px 10px; border-radius:999px; }
     .timetable { width:100%; border-collapse:collapse; }
     .timetable th,.timetable td { border:1px solid #e5e5e5; padding:8px; vertical-align:top; }
     .timetable thead th { background:#f7f7f7; }
-    .slot { font-size:12px; line-height:1.35; background:#f9fafb; border:1px dashed #ddd; padding:6px; border-radius:8px; white-space:pre-line; }
-    .slot b { display:block; margin-bottom:2px; }
+    .slot { font-size:12px; line-height:1.35; background:#f9fafb; border:1px dashed #ddd; padding:8px; border-radius:8px; white-space:pre-line; display:flex; flex-direction:column; gap:6px; }
+    .slot b { display:block; }
+    .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#eef; color:#2b2a8f; }
+    .meta-line { font-size:12px; color:#333; }
     .hidden { display:none; }
     /* Print */
     @media print {
@@ -45,6 +48,12 @@
 
       <div class="panel">
         <div class="controls">
+          <div>
+            <label>Fan bo‘yicha filter (ixtiyoriy)</label>
+            <select id="subjectFilter" style="min-width:220px;">
+              <option value="">(hammasi)</option>
+            </select>
+          </div>
           <div id="teacherWrap">
             <label>O‘qituvchi</label>
             <select id="teacherSel" style="min-width:260px;"></select>
@@ -57,6 +66,7 @@
           </div>
           <button id="btnReload" class="btn">Yuklash</button>
           <div class="print-actions" style="margin-left:auto; display:flex; gap:8px;">
+            <button id="btnCsv" class="btn">CSV chiqarish</button>
             <button id="btnPrint" class="btn">Chop etish</button>
           </div>
           <span id="meta" class="badge">—</span>

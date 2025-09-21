@@ -146,3 +146,21 @@
 .att-table { width:100%; border-collapse:collapse; margin-top:12px; }
 .att-table th, .att-table td { padding:10px; border-bottom:1px solid #eee; text-align:left; }
 
+/* Attendance status pills */
+.status-pill {
+  display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600;
+  line-height:1; border:1px solid transparent;
+}
+.status-present { background:#e7f6ed; color:#0a7a33; border-color:#bfe6cf; }
+.status-absent  { background:#fde7ea; color:#c01a1a; border-color:#f3b8c0; }
+.status-late    { background:#fff4e5; color:#a15e00; border-color:#f8d7a6; }
+.status-excused { background:#e8f1ff; color:#1a4fbf; border-color:#b9d1ff; }
+
+/* Button group for picking a status */
+.stat-group { display:flex; gap:6px; flex-wrap:wrap; }
+.stat-btn { padding:6px 10px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer; font-size:12px; }
+.stat-btn.active { border-color:#4f46e5; box-shadow:0 0 0 2px rgba(79,70,229,.12); }
+.stat-btn[data-val="present"].active { background:#e7f6ed; color:#0a7a33; border-color:#bfe6cf; }
+.stat-btn[data-val="absent"].active  { background:#fde7ea; color:#c01a1a; border-color:#f3b8c0; }
+.stat-btn[data-val="late"].active    { background:#fff4e5; color:#a15e00; border-color:#f8d7a6; }
+.stat-btn[data-val="excused"].active { background:#e8f1ff; color:#1a4fbf; border-color:#b9d1ff; }

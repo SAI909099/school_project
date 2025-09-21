@@ -1,0 +1,117 @@
+:root {
+  --bg: #ffffff;
+  --line: #eee;
+  --text: #222;
+  --muted: #666;
+  --accent: #4f46e5;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 14px/1.4 "Poppins", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.students-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.classes-panel {
+  width: 300px;
+  border-right: 1px solid var(--line);
+  padding: 16px;
+  background: #fafbff;
+}
+
+.search-wrap input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: none;
+}
+
+.classes-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.class-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+
+.class-item:hover {
+  background: #f1f3ff;
+}
+
+.class-line {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.class-teacher {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.students-panel {
+  flex: 1;
+  padding: 16px;
+}
+
+.panel-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.btn-outline {
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.table-wrap {
+  margin-top: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.students-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.students-table th, .students-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.students-table thead th {
+  background: #f6f7fb;
+  font-weight: 600;
+}
+
+.empty-state {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}

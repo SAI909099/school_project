@@ -61,12 +61,7 @@
     </main>
   </div>
 
-  <!-- Configure API base and load logic -->
-  <script>
-    // Backend bazaviy URL — kerak bo‘lsa moslang (prod/dev uchun)
-    window.API_BASE = '/api/billing';
-  </script>
-  <!-- JWT localStorage['access'] bo‘lsa avtomatik ishlaydi -->
-  <script src="{% static 'js/moliya-main.js' %}" defer></script>
+    <script>window.API_BASE = '/api/billing';</script>
+    <script src="{% static 'js/moliya-oylik.js' %}" defer></script>
 </body>
 </html>

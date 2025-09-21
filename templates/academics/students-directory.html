@@ -1,0 +1,62 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <title>O‘quvchilar ro‘yxati</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="{% static 'css/students-directory.css' %}">
+</head>
+<body>
+  <div class="students-layout">
+    <!-- LEFT: Classes -->
+    <aside class="classes-panel">
+      <div class="search-wrap">
+        <input id="student-search" type="text" placeholder="Maktab bo‘ylab qidiruv..." />
+      </div>
+
+      <ul id="classes-list" class="classes-list">
+        <!-- JS -->
+      </ul>
+    </aside>
+
+    <!-- RIGHT: Students table -->
+    <main class="students-panel">
+      <div class="panel-top">
+        <h2 id="panel-title">Barcha o‘quvchilar</h2>
+        <div class="panel-actions">
+          <button id="btn-clear" class="btn-outline">Tozalash</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="students-table" id="students-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>F.I.O</th>
+              <th>Sinf</th>
+              <th>Kurator</th>
+              <th>Ota-ona</th>
+              <th>Tel</th>
+            </tr>
+          </thead>
+          <tbody id="students-body">
+            <!-- JS -->
+          </tbody>
+        </table>
+
+        <div id="empty-state" class="empty-state" style="display:none;">
+          Ma’lumot topilmadi.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Academics endpoints live under /api (as in your project urls)
+    window.API_BASE = '/api';
+  </script>
+  <script src="{% static 'js/students-directory.js' %}" defer></script>
+</body>
+</html>
