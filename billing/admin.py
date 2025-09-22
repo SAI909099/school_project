@@ -17,3 +17,12 @@ class PaymentAdmin(admin.ModelAdmin):
     list_display = ('student', 'invoice', 'amount_uzs', 'method', 'paid_at', 'receipt_no')
     list_filter = ('method', 'paid_at')
     search_fields = ('student__last_name', 'student__first_name', 'receipt_no')
+
+# billing/admin.py
+from django.contrib import admin
+from .models import SalaryPayout
+@admin.register(SalaryPayout)
+class SalaryPayoutAdmin(admin.ModelAdmin):
+    list_display = ('month','fio','date','paid')
+    list_filter  = ('month','paid')
+    search_fields= ('fio',)

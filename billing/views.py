@@ -204,3 +204,74 @@ class DebtorsView(APIView):
             {"student_id": 2, "student_name": "Dilnoza Karimova", "class_name": "7-A", "parent_phone": "+998909998877", "debt": 200000},
         ]
         return Response(data)
+
+
+# billing/views.py (append)
+from rest_framework.permissions import IsAuthenticated
+from .models import SalaryPayout
+from .utils import parse_month  # you already use this in invoices/payments
+
+class SalariesListView(APIView):
+    """
+    GET /api/billing/salaries/?month=YYYY-MM
+    Returns: [{fio, date, paid}, ...]
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        m = request.query_params.get('month')
+        if not m:
+            # default: current month
+            from datetime import date
+            m = date.today().strftime('%Y-%m')
+        mdt = parse_month(m)
+        rows = SalaryPayout.objects.filter(month=mdt).order_by('fio', 'date')
+        data = [{'fio': r.fio, 'date': r.date.isoformat(), 'paid': bool(r.paid)} for r in rows]
+        return Response(data)
+
+class SalariesMarkView(APIView):
+    """
+    POST /api/billing/salaries/mark/
+    body: {"month": "YYYY-MM", "items": [{"fio": "...", "date": "YYYY-MM-DD", "paid": true}, ...]}
+    Upserts rows by (month, fio, date).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin','accountant'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        m = (request.data.get('month') or '').strip()
+        items = request.data.get('items') or []
+        if not m:
+            return Response({'detail':'month required (YYYY-MM)'}, status=400)
+        try:
+            mdt = parse_month(m)
+        except Exception:
+            return Response({'detail':'invalid month format'}, status=400)
+
+        created = 0
+        updated = 0
+        for it in items:
+            fio = (it.get('fio') or '').strip()
+            dt  = it.get('date')
+            paid = bool(it.get('paid'))
+            if not fio or not dt:
+                continue
+            try:
+                # normalize (ensures date is valid)
+                from datetime import date as _d
+                y, mo, d = map(int, dt.split('-'))
+                dtx = _d(y, mo, d)
+            except Exception:
+                continue
+
+            obj, was_created = SalaryPayout.objects.update_or_create(
+                month=mdt, fio=fio, date=dtx,
+                defaults={'paid': paid}
+            )
+            created += 1 if was_created else 0
+            updated += 0 if was_created else 1
+
+        return Response({'ok': True, 'created': created, 'updated': updated})

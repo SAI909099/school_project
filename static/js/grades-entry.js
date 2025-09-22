@@ -1,197 +1,230 @@
-(function(){
-  const API_BASE = (window.API_BASE || '/api/').replace(/\/+$/, '');
+/* static/js/grades-entry.js */
+(function () {
+  const API = (window.API_BASE || '/api').replace(/\/+$/, '');
   const access = localStorage.getItem('access');
-  if(!access){ window.location.href='/login/'; return; }
-  const HEADERS = { 'Content-Type':'application/json', 'Authorization':'Bearer ' + access };
+  if (!access) { window.location.replace('/'); return; }
+  const HEADERS = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + access };
 
-  const qs=(s,r=document)=>r.querySelector(s);
-  const el=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Object.entries(a)){if(n==='class')e.className=v;else if(v!=null)e.setAttribute(n,v);}k.forEach(x=>e.append(x instanceof Node?x:document.createTextNode(x)));return e;};
-  const msg=qs('#msg'), ok=t=>{msg.className='ok';msg.textContent=t;msg.classList.remove('hidden');}, err=t=>{msg.className='err';msg.textContent=t;msg.classList.remove('hidden');}, hide=()=>msg.classList.add('hidden');
-
-  const classSel=qs('#classSel'), subjectSel=qs('#subjectSel'), typeSel=qs('#typeSel');
-  const dateInp=qs('#dateInp'), termInp=qs('#termInp'), whoBadge=qs('#whoBadge');
-  const btnLoad=qs('#btnLoad'), btnSave=qs('#btnSave'), btnClear=qs('#btnClear');
-  const btnFill3=qs('#btnFill3'), btnFill4=qs('#btnFill4'), btnFill5=qs('#btnFill5');
-  const tbody=qs('#tbl tbody');
-
-  let ROLE='user';
-  let CLASSES=[], STUDENTS=[], SUBJECT_OPTIONS=[];
-
-  function todayISO(){
-    const d=new Date(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0');
-    return `${d.getFullYear()}-${m}-${day}`;
-  }
-  async function api(path,opts={}){
-    const url = path.startsWith('http')? path : API_BASE + (path.startsWith('/')? path : '/'+path);
-    const res = await fetch(url, {headers:HEADERS, ...opts});
-    if(!res.ok) throw new Error(await res.text().catch(()=>`HTTP ${res.status}`));
-    return res.json();
-  }
-
-  async function init(){
-    hide();
-    dateInp.value = todayISO();
-
-    const me = await api('/auth/me/');
-    ROLE = me?.role || 'user';
-    whoBadge.textContent = 'Rol: ' + ROLE;
-
-    CLASSES = (ROLE==='teacher')
-      ? await api('/teacher/classes/me/')
-      : await api('/classes/');
-
-    classSel.innerHTML='';
-    CLASSES.sort((a,b)=> String(a.name).localeCompare(String(b.name)));
-    CLASSES.forEach(c=> classSel.append(el('option',{value:c.id}, c.name)));
-
-    // prefer teacher’s homeroom if any
-    const myId = me?.teacher?.id;
-    const preferred = CLASSES.find(c => c.class_teacher === myId) || CLASSES[0];
-    if(preferred) classSel.value = preferred.id;
-
-    await loadSubjectsForClass();
-  }
-
-  async function loadSubjectsForClass(){
-    subjectSel.innerHTML='<option value="">— tanlang —</option>';
-    const cid = Number(classSel.value || 0);
-    if(!cid) return;
-
-    // gather subjects that actually exist in the class schedule
-    const schedule = await api(`/schedule/class/${cid}/`);
-    const uniq = new Map();
-    schedule.forEach(s => { if(s.subject) uniq.set(s.subject, s.subject_name || 'Fan'); });
-
-    SUBJECT_OPTIONS = Array.from(uniq.entries()).map(([id,name])=>({id,name}));
-    SUBJECT_OPTIONS.sort((a,b)=> a.name.localeCompare(b.name));
-    SUBJECT_OPTIONS.forEach(s => subjectSel.append(el('option',{value:s.id}, s.name)));
-
-    // clear table until user clicks "O‘quvchilarni yuklash"
-    tbody.innerHTML='';
-  }
-
-  async function loadStudents(){
-    hide();
-    tbody.innerHTML='';
-    const cid = Number(classSel.value || 0);
-    if(!cid){ err('Sinf tanlanmagan'); return; }
-    STUDENTS = await api(`/classes/${cid}/students_az/`);
-
-    STUDENTS.forEach((s,idx)=>{
-      const score = el('input',{type:'number', min:'2', max:'5', step:'1', 'data-student':s.id, style:'width:90px;'});
-      const comment = el('input',{type:'text', placeholder:'Izoh (ixtiyoriy)', 'data-comment':s.id});
-      const tr = el('tr',{},
-        el('td',{}, String(idx+1)),
-        el('td',{}, `${s.last_name||''} ${s.first_name||''}`.trim()),
-        el('td',{}, score),
-        el('td',{}, comment),
-      );
-      tbody.append(tr);
-    });
-    ok('O‘quvchilar yuklandi ✅');
-
-    // Immediately try to prefill after list loads
-    await prefillExisting();
-  }
-
-  async function prefillExisting(){
-    const cid = Number(classSel.value||0);
-    const sid = Number(subjectSel.value||0);
-    const typ = typeSel.value;
-    const dt  = (dateInp.value || '').trim();
-    const term= (termInp.value || '').trim();
-
-    if(!cid || !sid || !typ || !dt) return; // need these to fetch
-
-    const params = new URLSearchParams({
-      'class': String(cid),
-      'subject': String(sid),
-      'type': typ,
-      'date': dt
-    });
-    if(term) params.set('term', term);
-
-    try{
-      const existing = await api(`/grades/by-class/?${params.toString()}`);
-      // existing: [{student_id, score, comment}, ...]
-      const map = new Map(existing.map(x => [x.student_id, x]));
-      tbody.querySelectorAll('input[data-student]').forEach(inp=>{
-        const sid = Number(inp.getAttribute('data-student'));
-        const found = map.get(sid);
-        if(found){
-          inp.value = found.score ?? '';
-          const cmt = qs(`input[data-comment="${sid}"]`);
-          if(cmt) cmt.value = found.comment || '';
-        }
-      });
-      if(existing.length) ok('Oldingi baholar topildi va yuklandi ✨');
-    }catch(e){
-      // don’t block the page if nothing found
-      console.warn('prefill failed', e);
+  // ---------- tiny helpers ----------
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (t, a = {}, ...kids) => {
+    const e = document.createElement(t);
+    for (const [k, v] of Object.entries(a)) {
+      if (k === 'class') e.className = v;
+      else if (v != null) e.setAttribute(k, v);
     }
+    kids.forEach(k => e.append(k instanceof Node ? k : document.createTextNode(k)));
+    return e;
+  };
+  function todayISO() {
+    const d = new Date();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${dd}`;
+  }
+  function msg(ok, text) {
+    const box = $('#msg');
+    box.classList.remove('hidden');
+    box.className = ok ? 'ok' : 'err';
+    box.textContent = text;
+    setTimeout(() => { box.classList.add('hidden'); }, ok ? 2500 : 5000);
   }
 
-  async function save(){
-    hide();
-    const cid = Number(classSel.value||0);
-    const subj = Number(subjectSel.value||0);
-    const typ  = typeSel.value;
-    const dt   = dateInp.value || todayISO();
-    const term = (termInp.value||'').trim();
+  // ---------- DOM refs ----------
+  const classSel = $('#classSel');
+  const subjectSel = $('#subjectSel');
+  const typeSel = $('#typeSel');
+  const dateInp = $('#dateInp');
+  const termInp = $('#termInp');
+  const tbl = $('#tbl tbody');
+  const btnLoad = $('#btnLoad');
+  const btnFill3 = $('#btnFill3');
+  const btnFill4 = $('#btnFill4');
+  const btnFill5 = $('#btnFill5');
+  const btnClear = $('#btnClear');
+  const btnSave = $('#btnSave');
+  const whoBadge = $('#whoBadge');
 
-    if(!cid){ return err('Sinf tanlanmagan'); }
-    if(!subj){ return err('Fan tanlanmagan'); }
-    if(!['daily','exam','final'].includes(typ)){ return err('Baho turi noto‘g‘ri'); }
+  // ---------- state ----------
+  let students = [];  // [{id, first_name, last_name}]
+  let role = '—';
 
-    const entries=[];
-    tbody.querySelectorAll('input[data-student]').forEach(inp=>{
-      const sid = Number(inp.getAttribute('data-student'));
-      const val = inp.value ? Number(inp.value) : null;
-      const cmt = (qs(`input[data-comment="${sid}"]`)?.value || '').trim();
-      if(val!=null){
-        entries.push({ student:sid, score:val, comment:cmt });
+  // ---------- boot defaults ----------
+  dateInp.value = todayISO();
+  if (!termInp.value) {
+    const d = new Date();
+    const half = (d.getMonth() + 1) <= 6 ? 1 : 2;
+    termInp.value = `${d.getFullYear()}-${half}`;
+  }
+
+  // ---------- fetch helpers ----------
+  async function apiGET(path) {
+    const r = await fetch(API + path, { headers: HEADERS });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+  }
+  async function apiPOST(path, data) {
+    const r = await fetch(API + path, { method: 'POST', headers: HEADERS, body: JSON.stringify(data) });
+    const text = await r.text();
+    let json = null;
+    try { json = text ? JSON.parse(text) : {}; } catch { /* leave as text */ }
+    if (!r.ok) {
+      throw new Error(json && json.detail ? json.detail : (text || `HTTP ${r.status}`));
+    }
+    return json;
+  }
+
+  // User role (best-effort)
+  async function loadRole() {
+    try {
+      const me = await apiGET('/auth/me/');
+      role = me.role || me.user?.role || '—';
+    } catch (_) { role = '—'; }
+    whoBadge.textContent = `Rol: ${role}`;
+  }
+
+  async function loadClasses() {
+    const data = await apiGET('/dir/classes/');
+    (data || []).forEach(c => classSel.append(el('option', { value: c.id }, c.name)));
+  }
+
+  async function loadTeacherDefaultClass() {
+    try {
+      const mine = await apiGET('/teacher/classes/me/');
+      if (Array.isArray(mine) && mine.length) {
+        const firstId = String(mine[0].id);
+        if (![...classSel.options].some(o => o.value === firstId)) {
+          classSel.append(el('option', { value: firstId }, mine[0].name || `Sinf #${firstId}`));
+        }
+        classSel.value = firstId;
+      }
+    } catch (_) {/* ignore */}
+  }
+
+  async function loadSubjects() {
+    const data = await apiGET('/subjects/');
+    subjectSel.innerHTML = '';
+    subjectSel.append(el('option', { value: '' }, '— tanlang —'));
+    (data || []).forEach(s => subjectSel.append(el('option', { value: s.id }, `${s.name} (${s.code})`)));
+  }
+
+  async function loadStudentsByClass(classId) {
+    const data = await apiGET(`/classes/${classId}/students_az/`);
+    students = (data || []).map(s => ({ id: s.id, first_name: s.first_name, last_name: s.last_name }));
+  }
+
+  // ---------- table render ----------
+  function renderTable() {
+    tbl.innerHTML = '';
+    if (!students.length) {
+      tbl.append(el('tr', {}, el('td', { colspan: 4 }, 'O‘quvchilar topilmadi.')));
+      return;
+    }
+    students.forEach((s, idx) => {
+      const row = el('tr', { 'data-student': s.id },
+        el('td', {}, String(idx + 1)),
+        el('td', {}, `${s.last_name || ''} ${s.first_name || ''}`.trim()),
+        el('td', {}, el('input', { type: 'number', min: '2', max: '5', step: '1', class: 'score-inp', style: 'width:80px' })),
+        el('td', {}, el('input', { type: 'text', class: 'comment-inp', placeholder: 'Izoh (ixtiyoriy)' }))
+      );
+      tbl.append(row);
+    });
+  }
+
+  // ---------- bulk helpers ----------
+  function fillAll(val) { tbl.querySelectorAll('.score-inp').forEach(inp => { inp.value = String(val); }); }
+  function clearAll() {
+    tbl.querySelectorAll('.score-inp').forEach(inp => inp.value = '');
+    tbl.querySelectorAll('.comment-inp').forEach(inp => inp.value = '');
+  }
+
+  // ---------- save ----------
+  async function saveGrades() {
+    const classId = classSel.value;
+    const subjectId = subjectSel.value;
+    let gtype = typeSel.value;
+    const dt = dateInp.value;
+    const term = termInp.value.trim();
+
+    if (!classId) { msg(false, 'Sinf tanlanmadi'); return; }
+    if (!subjectId) { msg(false, 'Fan tanlanmadi'); return; }
+    if (!dt) { msg(false, 'Sana tanlanmadi'); return; }
+
+    // Only allow exam|final; ignore/deny daily on the client side.
+    if (!['exam', 'final'].includes(gtype)) {
+      // If someone injects "daily" via DevTools, block it.
+      msg(false, 'Kundalik baholar kiritilmaydi. Faqat Imtihon yoki Yakuniy.');
+      // Optionally auto-correct to exam:
+      gtype = 'exam';
+      // return; // or stop completely if you prefer
+    }
+
+    const entries = [];
+    tbl.querySelectorAll('tr').forEach(tr => {
+      const sid = tr.getAttribute('data-student');
+      const score = tr.querySelector('.score-inp').value;
+      const comment = tr.querySelector('.comment-inp').value.trim();
+      if (sid && score) {
+        const n = Number(score);
+        if (Number.isFinite(n) && n >= 2 && n <= 5) {
+          entries.push({ student: Number(sid), score: n, comment });
+        }
       }
     });
 
-    if(!entries.length){ return err('Hech bo‘lmaganda bitta bahoni kiriting.'); }
+    if (!entries.length) { msg(false, 'Hech bo‘lmaganda bitta bahoni kiriting.'); return; }
 
-    try{
-      await api('/grades/bulk-set/', {
-        method:'POST',
-        body: JSON.stringify({
-          "class": cid,
-          "date": dt,
-          "subject": subj,
-          "type": typ,
-          "term": term,
-          "entries": entries
-        })
-      });
-      ok('Baholar saqlandi ✅');
-      // after save, re-pull so any missing rows (new students, edits) reflect
-      await prefillExisting();
-    }catch(e){
-      console.error(e); err('Saqlashda xatolik ❌\n'+e.message);
+    const payload = {
+      "class": Number(classId),
+      "date": dt,
+      "subject": Number(subjectId),
+      "type": gtype,            // exam | final  (daily intentionally not used)
+      "term": term,             // e.g., 2025-1 (may be empty)
+      "entries": entries
+    };
+
+    try {
+      const res = await apiPOST('/grades/bulk-set/', payload);
+      if (res && res.ok) {
+        msg(true, `Saqlanib bo‘ldi. ${res.ids?.length || entries.length} ta yozuv.`);
+      } else {
+        msg(true, 'Saqlanib bo‘ldi.');
+      }
+    } catch (e) {
+      msg(false, 'Xatolik: ' + e.message);
     }
   }
 
-  // helpers
-  function fillAll(v){ tbody.querySelectorAll('input[data-student]').forEach(inp => { inp.value = v; }); }
-  function clearAll(){ tbody.querySelectorAll('input[data-student], input[data-comment]').forEach(inp=> inp.value=''); }
-
-  // events
-  classSel.addEventListener('change', async ()=> { await loadSubjectsForClass(); tbody.innerHTML=''; });
-  subjectSel.addEventListener('change', prefillExisting);
-  typeSel.addEventListener('change', prefillExisting);
-  dateInp.addEventListener('change', prefillExisting);
-  termInp.addEventListener('change', prefillExisting);
-
-  btnLoad.addEventListener('click', loadStudents);
-  btnSave.addEventListener('click', save);
+  // ---------- events ----------
+  btnFill3.addEventListener('click', () => fillAll(3));
+  btnFill4.addEventListener('click', () => fillAll(4));
+  btnFill5.addEventListener('click', () => fillAll(5));
   btnClear.addEventListener('click', clearAll);
-  btnFill3.addEventListener('click', ()=> fillAll(3));
-  btnFill4.addEventListener('click', ()=> fillAll(4));
-  btnFill5.addEventListener('click', ()=> fillAll(5));
+  btnSave.addEventListener('click', saveGrades);
 
-  init().catch(e => err('Yuklashda xatolik: '+e.message));
+  btnLoad.addEventListener('click', async () => {
+    const classId = classSel.value;
+    if (!classId) { msg(false, 'Avval sinfni tanlang.'); return; }
+    try {
+      await loadStudentsByClass(classId);
+      renderTable();
+      msg(true, 'O‘quvchilar yuklandi.');
+    } catch (e) {
+      msg(false, 'Yuklashda xatolik: ' + e.message);
+    }
+  });
+
+  // ---------- init ----------
+  (async function init() {
+    try {
+      // Defensive: if template cache accidentally still has "daily", remove it.
+      const dailyOpt = typeSel.querySelector('option[value="daily"]');
+      if (dailyOpt) dailyOpt.remove();
+
+      await Promise.all([loadRole(), loadClasses(), loadSubjects()]);
+      await loadTeacherDefaultClass();
+    } catch (e) {
+      console.error(e);
+    }
+  })();
 })();

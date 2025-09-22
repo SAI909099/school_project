@@ -61,6 +61,8 @@ urlpatterns += [
     path("moliya/chiqim/", TemplateView.as_view(template_name="moliya/moliya-chiqim.html"), name="moliya-chiqim"),
     path("moliya/oyliklar/", TemplateView.as_view(template_name="moliya/moliya-oylik.html"), name="moliya-oylik"),
     path("moliya/sozlamalar/", TemplateView.as_view(template_name="moliya/moliya-sozlamalar.html"), name="moliya-sozlamalar"),
+    path("moliya/tolovlar/", TemplateView.as_view(template_name="moliya/moliya-tolovlar.html"), name="moliya-tolovlar"),
+
 
     path("operator/", TemplateView.as_view(template_name="operator/operator-reg.html"), name="operator-main"),
     path("operator/davomat/", TemplateView.as_view(template_name="operator/oper-davomat.html"), name="operator-davomat"),

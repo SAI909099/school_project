@@ -1,0 +1,151 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moliya — O‘quvchi to‘lovlari</title>
+  <link rel="stylesheet" href="{% static 'css/moliya-style.css' %}">
+  <style>
+    .card{background:#fff;border-radius:12px;box-shadow:0 3px 6px rgba(0,0,0,.08);padding:16px;margin-bottom:14px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{font-weight:600;display:block;margin-bottom:4px}
+    select,input{border:1px solid #ddd;border-radius:8px;padding:8px 10px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer}
+    .btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{border:1px solid #eee;padding:8px}
+    .table th{background:#f7f7f7;text-align:left}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px}
+    .pill.unpaid{background:#ffeaea;color:#a10000}
+    .pill.partial{background:#fff6e5;color:#ad6b00}
+    .pill.paid{background:#e9ffef;color:#046b2f}
+    .pill.prepaid{background:#e7f0ff;color:#173e91}
+    .right{margin-left:auto}
+    .hidden{display:none}
+    dialog{width:420px;border:none;border-radius:12px;padding:0}
+    dialog .dlg-body{padding:16px}
+    dialog::backdrop{background:rgba(0,0,0,.4)}
+    .mini-grid{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo"><img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img"></div>
+      <h3 class="sidebar-title">School Moliya</h3>
+      <nav class="menu">
+        <a href="{% url 'moliya-main' %}"><img src="{% static 'icons/Asosiy.png' %}" alt=""> Asosiy</a>
+        <a href="{% url 'moliya-chiqim' %}"><img src="{% static 'icons/Chiqim.png' %}" alt=""> Chiqim</a>
+        <a href="{% url 'moliya-oylik' %}"><img src="{% static 'icons/Jadval.png' %}" alt=""> Oyliklar</a>
+        <a href="{% url 'moliya-tolovlar' %}" class="active"><img src="{% static 'icons/O‘quvchi.png' %}" alt=""> To‘lovlar</a>
+        <a href="{% url 'moliya-sozlamalar' %}"><img src="{% static 'icons/sozlamalar.png' %}" alt=""> Sozlamalar</a>
+      </nav>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+      <div class="topbar">
+        <input type="text" id="qSearch" placeholder="Ism / familiya / sinf">
+        <div class="icons">
+          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt=""></a>
+          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt=""></a>
+        </div>
+      </div>
+
+      <h2 class="page-title">O‘quvchi to‘lovlari</h2>
+
+      <!-- Filters -->
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>Oy</label>
+            <input type="month" id="monthInp">
+          </div>
+          <div>
+            <label>Sinf</label>
+            <select id="classSel"><option value="">— hammasi —</option></select>
+          </div>
+          <div>
+            <label>Status</label>
+            <select id="statusSel">
+              <option value="">— hammasi —</option>
+              <option value="unpaid">To‘lanmagan</option>
+              <option value="partial">Qisman</option>
+              <option value="paid">To‘langan</option>
+              <option value="__prepaid">Oldindan (prepaid)</option>
+            </select>
+          </div>
+          <button id="btnLoad" class="btn">Yuklash</button>
+          <div class="right">
+            <button id="btnGenerate" class="btn">Oy uchun hisob yozish</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tuition plan mini-panel -->
+      <div class="card">
+        <h3>Oylik narx (Sinf bo‘yicha)</h3>
+        <div class="row">
+          <div>
+            <label>Sinf</label>
+            <select id="planClassSel"><option value="">— tanlang —</option></select>
+          </div>
+          <div>
+            <label>Narx (so‘m)</label>
+            <input type="number" id="planAmount" min="0" step="1000" placeholder="masalan 450000">
+          </div>
+          <button id="btnPlanSave" class="btn primary">Saqlash</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="card">
+        <table class="table" id="tbl">
+          <thead>
+            <tr>
+              <th>O‘quvchi</th>
+              <th>Sinf</th>
+              <th>Oy</th>
+              <th>Summa</th>
+              <th>Chegirma</th>
+              <th>Jarima</th>
+              <th>To‘langan</th>
+              <th>Qoldiq</th>
+              <th>Status</th>
+              <th style="width:120px;">Amal</th>
+            </tr>
+          </thead>
+          <tbody><!-- JS fills --></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Payment modal -->
+  <dialog id="payDlg">
+    <div class="dlg-body">
+      <h3>To‘lov qo‘shish</h3>
+      <div style="margin:8px 0 12px;color:#666"><span id="dlgWho">—</span></div>
+      <div class="mini-grid">
+        <label>Miqdor (so‘m)</label><input type="number" id="payAmount" min="1" step="1000">
+        <label>Usul</label>
+        <select id="payMethod">
+          <option value="cash">Naqd</option>
+          <option value="card">Karta</option>
+          <option value="transfer">O‘tkazma</option>
+        </select>
+        <label>Izoh</label><input type="text" id="payNote" placeholder="ixtiyoriy">
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button id="btnPaySave" class="btn primary">Saqlash</button>
+        <button id="btnPayCancel" class="btn right">Bekor qilish</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>window.API_BASE = '/api/billing';</script>
+  <script src="{% static 'js/moliya-tolovlar.js' %}" defer></script>
+</body>
+</html>

@@ -39,3 +39,4 @@ class PaymentSerializer(serializers.ModelSerializer):
         if data.get('amount_uzs', 0) <= 0:
             raise serializers.ValidationError('amount_uzs must be > 0')
         return data
+

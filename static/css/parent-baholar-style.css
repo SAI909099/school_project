@@ -144,3 +144,11 @@
   justify-content: center;
   gap: 10px;
 }
+
+.badge {
+  display:inline-block; padding:4px 10px; border-radius:999px;
+  background:#eef; color:#2b2a8f; font-size:12px;
+}
+.cards-grid .card table { width:100%; border-collapse:collapse; }
+.cards-grid .card th, .cards-grid .card td { border:1px solid #eee; padding:8px; text-align:left; }
+.cards-grid .card th { background:#f7f7f7; }

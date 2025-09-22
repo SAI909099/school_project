@@ -84,3 +84,25 @@ class Payment(models.Model):
         inv.paid_uzs = agg['total'] or 0
         inv.recompute_status()
         inv.save(update_fields=['paid_uzs', 'status', 'updated_at'])
+
+# billing/models.py (append)
+class SalaryPayout(models.Model):
+    """
+    Minimal checklist row for salaries.
+    If you want to link real staff later, add teacher = models.ForeignKey(Teacher, ...)
+    """
+    month = models.DateField(help_text="Oyning birinchi kuni sifatida saqlanadi (YYYY-MM-01)")
+    fio = models.CharField(max_length=200)          # "F.I.O"
+    date = models.DateField()                       # planned or actual date
+    paid = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['month', 'fio', 'date']),
+        ]
+        unique_together = (('month', 'fio', 'date'),)
+        ordering = ['fio', 'date']
+
+    def __str__(self):
+        return f"{self.month:%Y-%m} | {self.fio} | {self.date} | {'paid' if self.paid else 'unpaid'}"
+
