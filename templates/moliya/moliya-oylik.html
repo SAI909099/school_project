@@ -4,19 +4,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>School Moliya</title>
+  <title>School Moliya — Oyliklar</title>
   <link rel="stylesheet" href="{% static 'css/moliya-oylik-style.css' %}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .card{background:#fff;border-radius:12px;box-shadow:0 3px 6px rgba(0,0,0,.08);padding:16px;margin-bottom:14px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{font-weight:600;display:block;margin-bottom:4px}
+    input,select{border:1px solid #ddd;border-radius:8px;padding:8px 10px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer}
+    .btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .btn.red{background:#b91c1c;color:#fff;border-color:#b91c1c}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{border:1px solid #eee;padding:8px}
+    .table th{background:#f7f7f7;text-align:left}
+    .right{margin-left:auto}
+    .muted{color:#666}
+    .disabled{opacity:.6;pointer-events:none}
+  </style>
 </head>
 <body>
   <div class="container">
-    <!-- Sidebar -->
     <aside class="sidebar">
-      <div class="logo">
-        <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
-      </div>
+      <div class="logo"><img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img"></div>
       <h3 class="sidebar-title">School Moliya</h3>
       <nav class="menu">
         <a href="{% url 'moliya-main' %}"><img src="{% static 'icons/Asosiy-white.png' %}" alt=""> Asosiy</a>
@@ -26,58 +35,50 @@
       </nav>
     </aside>
 
-    <!-- Content -->
     <main class="content">
-      <!-- Topbar -->
       <div class="topbar">
-        <input type="text" class="search" placeholder="Qidiruv">
+        <input type="text" id="qSearch" class="search" placeholder="Qidiruv (ism / rol)">
         <div class="icons">
           <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell"></a>
           <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile"></a>
         </div>
       </div>
 
-      <!-- Заголовок -->
       <h2 class="page-title">Ishchilar oyliklari</h2>
 
-      <!-- Jadval -->
-      <div class="table-container">
-        <table>
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>Oy</label>
+            <input type="month" id="monthInp">
+          </div>
+          <button id="btnReload" class="btn">Yuklash</button>
+          <div class="right">
+            <button id="btnSave" class="btn primary">Saqlash</button>
+            <button id="btnFinalize" class="btn red">Oy yakunlash (lock)</button>
+          </div>
+        </div>
+        <div class="row"><span id="lockInfo" class="muted"></span></div>
+      </div>
+
+      <div class="card">
+        <table class="table" id="tbl">
           <thead>
             <tr>
               <th>F.I.O</th>
-              <th>Berilgan sana</th>
+              <th>Mutaxassislik</th>
+              <th>Rol</th>
+              <th>Miqdor (so‘m)</th>
               <th>Berilgan</th>
             </tr>
           </thead>
-          <tbody>
-            <tr>
-              <td>F.I.O</td>
-              <td>2025-09-01</td>
-              <td><input type="checkbox" checked></td>
-            </tr>
-            <tr>
-              <td>F.I.O</td>
-              <td>2025-09-05</td>
-              <td><input type="checkbox"></td>
-            </tr>
-            <tr>
-              <td>F.I.O</td>
-              <td>2025-09-10</td>
-              <td><input type="checkbox"></td>
-            </tr>
-          </tbody>
+          <tbody><!-- JS fills --></tbody>
         </table>
-      </div>
-
-      <div class="form-actions">
-        <button type="submit" class="btn-primary">Saqlash</button>
       </div>
     </main>
   </div>
 
-<script>window.API_BASE = '/api/billing';</script>
-<script src="{% static 'js/moliya-oylik.js' %}" defer></script>
-
+  <script>window.API_BASE = '/api/billing';</script>
+  <script src="{% static 'js/moliya-oylik.js' %}" defer></script>
 </body>
 </html>

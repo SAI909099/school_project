@@ -3,6 +3,7 @@ from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from django.views.generic import TemplateView
 
+from academics.views import SchoolStatsView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -64,6 +65,7 @@ urlpatterns += [
     path("moliya/tolovlar/", TemplateView.as_view(template_name="moliya/moliya-tolovlar.html"), name="moliya-tolovlar"),
 
 
+    path('operator/analytics/', TemplateView.as_view(template_name='operator/operator-analytics.html'),name='operator-analytics'),
     path("operator/", TemplateView.as_view(template_name="operator/operator-reg.html"), name="operator-main"),
     path("operator/davomat/", TemplateView.as_view(template_name="operator/oper-davomat.html"), name="operator-davomat"),
     path("operator/add/", TemplateView.as_view(template_name="operator/operator-add.html"), name="operator-add"),

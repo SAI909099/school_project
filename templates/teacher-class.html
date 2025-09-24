@@ -1,14 +1,13 @@
 {% load static %}
-
 <!DOCTYPE html>
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <title>School Oqituvchi-siniflar</title>
+  <title>O‘qituvchi — Sinflar</title>
   <link rel="stylesheet" href="{% static 'css/teacher-class-style.css' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -18,11 +17,11 @@
       <div class="logo">
         <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
       </div>
-      <h3 class="sidebar-title">School Oqituvchi</h3>
+      <h3 class="sidebar-title">School O‘qituvchi</h3>
       <nav class="menu">
-        <a href="/teachers/" ><img src="{% static 'icons/Asosiy.png' %}" alt=""> Asosiy</a>
-        <a href="/classes/"  ><img src="{% static 'icons/O‘quvchi.png' %}" alt=""> Siniflar</a>
-        <a href="/jadval/" ><img src="{% static 'icons/O‘qituvchi.png' %}" alt=""> Jadval</a>
+        <a href="/teachers/"><img src="{% static 'icons/Asosiy.png' %}" alt=""> Asosiy</a>
+        <a href="/classes/" class="active"><img src="{% static 'icons/O‘quvchi.png' %}" alt=""> Sinflar</a>
+        <a href="/jadval/"><img src="{% static 'icons/O‘qituvchi.png' %}" alt=""> Jadval</a>
         <a href="/sozlamalar/"><img src="{% static 'icons/sozlamalar.png' %}" alt=""> Sozlamalar</a>
       </nav>
     </aside>
@@ -37,46 +36,17 @@
         </div>
       </div>
 
-      <h2 class="page-title">Siniflar</h2>
+      <h2 class="page-title">Sinflar</h2>
 
-      <div class="cards">
-        <div class="card">
-          <h3>3-A sinif</h3>
-          <p>O‘quvchilar soni : 25 ta</p>
-          <p>Yo‘nalish : O‘zbek sinif</p>
-          <p><b>Kurator :</b> Test. T</p>
-        </div>
-        <div class="card">
-          <h3>5-B sinif</h3>
-          <p>O‘quvchilar soni : 20 ta</p>
-          <p>Yo‘nalish : Rus sinif</p>
-          <p><b>Kurator :</b> Test. T</p>
-        </div>
-        <div class="card">
-          <h3>1-B sinif</h3>
-          <p>O‘quvchilar soni : 15 ta</p>
-          <p>Yo‘nalish : O‘zbek sinif</p>
-          <p><b>Kurator :</b> Test. T</p>
-        </div>
-        <div class="card">
-          <h3>9-A sinif</h3>
-          <p>O‘quvchilar soni : 10 ta</p>
-          <p>Yo‘nalish : Rus sinif</p>
-          <p><b>Kurator :</b> Test. T</p>
-        </div>
-      </div>
+      <!-- Cards (JS fills) -->
+      <div class="cards"><!-- JS fills --></div>
 
-      <!-- Pagination -->
-      <div class="pagination">
-        <a href="#" class="active">1</a>
-        <a href="#">2</a>
-        <a href="#">3</a>
-        <a href="#">&gt;</a>
-      </div>
-
+      <!-- Attendance panel (JS injects content) -->
+      <!-- keeps page slim; panel is created dynamically by JS -->
     </main>
   </div>
-  <script src="{% static 'js/teacher-classes.js' %}"></script>
 
+  <script>window.API_BASE = '/api';</script>
+  <script src="{% static 'js/teacher-classes.js' %}" defer></script>
 </body>
 </html>

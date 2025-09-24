@@ -27,6 +27,8 @@
     dialog .dlg-body{padding:16px}
     dialog::backdrop{background:rgba(0,0,0,.4)}
     .mini-grid{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+    .hint{color:#666;font-size:12px}
+    #planMultiSel{min-width:260px}
   </style>
 </head>
 <body>
@@ -84,19 +86,30 @@
         </div>
       </div>
 
-      <!-- Tuition plan mini-panel -->
+      <!-- Tuition plan bulk panel -->
       <div class="card">
-        <h3>Oylik narx (Sinf bo‘yicha)</h3>
+        <h3>Oylik narx (hammasiga yoki tanlangan sinflarga)</h3>
+
+        <!-- Apply to ALL -->
         <div class="row">
           <div>
-            <label>Sinf</label>
-            <select id="planClassSel"><option value="">— tanlang —</option></select>
-          </div>
-          <div>
             <label>Narx (so‘m)</label>
-            <input type="number" id="planAmount" min="0" step="1000" placeholder="masalan 450000">
+            <input type="number" id="planAmountAll" min="0" step="1000" placeholder="masalan 450000">
           </div>
-          <button id="btnPlanSave" class="btn primary">Saqlash</button>
+          <button id="btnPlanApplyAll" class="btn primary">Barcha sinflarga qo‘llash</button>
+        </div>
+
+        <!-- Apply to SELECTED -->
+        <div class="row">
+          <div>
+            <label>Tanlangan sinflar</label>
+            <select id="planMultiSel" multiple size="6"></select>
+          </div>
+          <button id="btnPlanApplySelected" class="btn">Tanlangan sinflarga qo‘llash</button>
+        </div>
+
+        <div class="row">
+          <div class="hint">* Agar bitta sinf narxi boshqacha bo‘lsa keyin alohida o‘zgartirish mumkin.</div>
         </div>
       </div>
 

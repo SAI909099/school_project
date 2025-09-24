@@ -3,8 +3,32 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <title>School Moliya</title>
+  <title>School Moliya — Chiqimlar</title>
   <link rel="stylesheet" href="{% static 'css/moliya-chiqim-style.css' %}">
+  <style>
+    .card{background:#fff;border-radius:12px;box-shadow:0 3px 6px rgba(0,0,0,.08);padding:14px 16px;margin-bottom:14px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{font-weight:600;display:block;margin-bottom:4px}
+    input[type="date"],input[type="number"],input[type="text"],select{border:1px solid #ddd;border-radius:8px;padding:8px 10px;min-width:160px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer}
+    .btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .btn.ghost{background:#fff}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{border:1px solid #eee;padding:8px}
+    .table th{background:#f7f7f7;text-align:left}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#eef;color:#2b2a8f}
+    .tag.salary{background:#e7f0ff;color:#173e91}
+    .tag.manual{background:#fff1f1;color:#981b1b}
+    .muted{color:#6b7280}
+    .right{margin-left:auto}
+    .totals{display:flex;gap:12px;align-items:center}
+    .totals b{font-size:16px}
+    dialog{width:520px;border:none;border-radius:12px;padding:0}
+    dialog .dlg-body{padding:16px}
+    dialog::backdrop{background:rgba(0,0,0,.4)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .grid .full{grid-column:1 / -1}
+  </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -29,39 +53,115 @@
     <!-- Content -->
     <main class="content">
       <div class="topbar">
-        <input type="text" placeholder="Qidiruv">
+        <input type="text" id="q" placeholder="Qidiruv (izoh, tur, usul)">
         <div class="icons">
           <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell"></a>
           <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile"></a>
         </div>
       </div>
 
-      <!-- Заголовок -->
-      <h2 class="page-title">Chiqimlar ro'yxati</h2>
+      <h2 class="page-title">Chiqimlar ro‘yxati</h2>
 
-      <!-- Таблица -->
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Sana</th>
-              <th>Summa</th>
-              <th>Usul</th>
-              <th>Izoh</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- JS orqali to‘ldiriladi -->
-          </tbody>
-        </table>
+      <!-- Filters -->
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>Dan</label>
+            <input type="date" id="fromDate">
+          </div>
+          <div>
+            <label>Gacha</label>
+            <input type="date" id="toDate">
+          </div>
+          <div>
+            <label>Oyliklarni qo‘shish</label>
+            <select id="incSalary">
+              <option value="1">Ha</option>
+              <option value="0">Yo‘q</option>
+            </select>
+          </div>
+          <button id="btnFilter" class="btn">Yuklash</button>
+          <button id="btnThisMonth" class="btn ghost">Joriy oy</button>
+          <button id="btnReset" class="btn ghost">Tozalash</button>
+          <button id="btnNew" class="btn primary">Yangi chiqim +</button>
+          <div class="right totals">
+            <span class="muted">Jami:</span>
+            <b id="sumBox">—</b>
+            <button id="btnExport" class="btn">CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="card">
+        <div class="muted" style="margin-bottom:8px;">Satrlar: <span id="rowsCount">0</span></div>
+        <div class="table-container">
+          <table id="tbl">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Sana</th>
+                <th>Tur</th>
+                <th>Izoh</th>
+                <th>Usul</th>
+                <th>Summa</th>
+              </tr>
+            </thead>
+            <tbody><!-- JS orqali to‘ldiriladi --></tbody>
+          </table>
+        </div>
       </div>
     </main>
   </div>
 
-  <script>
-    window.API_BASE = '/api/billing';
-  </script>
+  <!-- New Expense dialog -->
+  <dialog id="expDlg">
+    <div class="dlg-body">
+      <h3>Yangi chiqim</h3>
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <label>Sana</label>
+          <input type="date" id="expDate">
+        </div>
+        <div>
+          <label>Miqdor (so‘m)</label>
+          <input type="number" id="expAmount" min="1000" step="1000" placeholder="100000">
+        </div>
+        <div>
+          <label>Usul</label>
+          <select id="expMethod">
+            <option value="cash">Naqd</option>
+            <option value="card">Karta</option>
+            <option value="transfer">O‘tkazma</option>
+          </select>
+        </div>
+        <div>
+          <label>Kategoriya</label>
+          <select id="expCategory">
+            <option value="salary">Oylik to‘lov</option>
+            <option value="food">Oziq-ovqat</option>
+            <option value="tools">Asbob-uskunalar</option>
+            <option value="rent">Ijara</option>
+            <option value="utilities">Kommunal to‘lovlar</option>
+            <option value="transport">Transport</option>
+            <option value="marketing">Marketing</option>
+            <option value="repair">Taʼmirlash</option>
+            <option value="other">Boshqa</option>
+          </select>
+        </div>
+        <div class="full">
+          <label>Izoh</label>
+          <input type="text" id="expReason" placeholder="ixtiyoriy">
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button id="btnSaveExp" class="btn primary">Saqlash</button>
+        <button id="btnCancelExp" class="btn right">Yopish</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>window.API_BASE = '/api/billing';</script>
   <script src="{% static 'js/moliya-chiqim.js' %}" defer></script>
 </body>
 </html>

@@ -40,3 +40,21 @@ class PaymentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('amount_uzs must be > 0')
         return data
 
+# billing/serializers.py (append)
+# billing/serializers.py
+from rest_framework import serializers
+from .models import Expense
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Expense
+        fields = ('id','date','amount_uzs','method','category','reason','created_by','created_at')
+        read_only_fields = ('id','created_by','created_at')
+
+    def create(self, validated_data):
+        # created_by from request.user
+        request = self.context.get('request')
+        if request and request.user and not validated_data.get('created_by'):
+            validated_data['created_by'] = request.user
+        return super().create(validated_data)
+

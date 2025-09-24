@@ -258,26 +258,47 @@ class ScheduleEntryViewSet(viewsets.ModelViewSet):
         return qs.order_by('weekday', 'start_time')
 
 
+# academics/views.py (replace the whole class)
+
+
+
 class AttendanceViewSet(viewsets.ModelViewSet):
-    queryset = Attendance.objects.select_related('student', 'clazz', 'subject', 'teacher').all()
+    """
+    CRUD + utilities for attendance.
+    """
+    queryset = (Attendance.objects
+                .select_related('student', 'clazz', 'subject', 'teacher')
+                .all())
     serializer_class = AttendanceSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrTeacherWrite]
 
+    # ---- base scoping for list/retrieve ----
     def get_queryset(self):
         qs = super().get_queryset()
         u = self.request.user
         role = getattr(u, 'role', None)
+
         if role == 'teacher':
+            # Teacher sees: their homeroom class, lessons they teach, or classes they teach in schedule
             try:
                 t = u.teacher_profile
-                qs = qs.filter(Q(clazz__class_teacher=t) | Q(teacher=t))
+                qs = qs.filter(
+                    Q(clazz__class_teacher=t) |
+                    Q(teacher=t) |
+                    Q(student__clazz__schedule__teacher=t)
+                )
             except Teacher.DoesNotExist:
                 return Attendance.objects.none()
+
         elif role == 'parent':
+            # Parent sees only their children
             child_ids = StudentGuardian.objects.filter(guardian=u).values_list('student_id', flat=True)
             qs = qs.filter(student_id__in=child_ids)
-        return qs
 
+        # admin/registrar/operator: see all
+        return qs.distinct()
+
+    # ---- bulk mark: used by teacher page (present/absent/late/excused) ----
     @action(detail=False, methods=['post'], url_path='bulk-mark')
     def bulk_mark(self, request):
         """
@@ -289,13 +310,20 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         }
         """
         u = request.user
-        if getattr(u, 'role', None) not in ('admin', 'teacher'):
+        if getattr(u, 'role', None) not in ('admin', 'teacher', 'registrar', 'operator'):
             return Response({'detail': 'Forbidden'}, status=403)
 
         clazz = request.data.get('class')
         dt = request.data.get('date')
         subject = request.data.get('subject')
         entries = request.data.get('entries', [])
+
+        if not clazz or not dt or not isinstance(entries, list):
+            return Response({'detail': 'class, date and entries are required'}, status=400)
+        try:
+            date.fromisoformat(dt)
+        except Exception:
+            return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
 
         try:
             t = u.teacher_profile if getattr(u, 'role', None) == 'teacher' else None
@@ -304,13 +332,128 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
         ids = []
         for e in entries:
+            sid = e.get('student')
+            st  = e.get('status')
+            if not sid or st not in ('present', 'absent', 'late', 'excused'):
+                continue
             obj, _ = Attendance.objects.update_or_create(
-                student_id=e['student'], date=dt, subject_id=subject,
-                defaults={'status': e['status'], 'note': e.get('note', ''), 'clazz_id': clazz, 'teacher': t}
+                student_id=sid, date=dt, subject_id=subject,
+                defaults={'status': st, 'note': e.get('note', ''), 'clazz_id': clazz, 'teacher': t}
             )
             ids.append(obj.id)
         return Response({'ok': True, 'ids': ids})
 
+    # ---- simple mark: used by operator page (boolean "present") ----
+    @action(detail=False, methods=['post'], url_path='mark')
+    def mark(self, request):
+        """
+        Payload:
+        {
+          "class_id": <id>,
+          "date": "YYYY-MM-DD",
+          "subject": <id or null, optional>,
+          "items": [{"student": id, "present": true|false}]
+        }
+        """
+        u = request.user
+        if getattr(u, 'role', None) not in ('admin', 'registrar', 'operator', 'teacher'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        clazz = request.data.get('class_id')
+        dt = request.data.get('date')
+        subject = request.data.get('subject')
+        items = request.data.get('items', [])
+
+        if not clazz or not dt or not isinstance(items, list):
+            return Response({'detail': 'class_id, date and items are required'}, status=400)
+        try:
+            date.fromisoformat(dt)
+        except Exception:
+            return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
+
+        try:
+            t = u.teacher_profile if getattr(u, 'role', None) == 'teacher' else None
+        except Teacher.DoesNotExist:
+            t = None
+
+        ids = []
+        for it in items:
+            sid = it.get('student')
+            present = bool(it.get('present'))
+            if not sid:
+                continue
+            status_val = 'present' if present else 'absent'
+            obj, _ = Attendance.objects.update_or_create(
+                student_id=sid, date=dt, subject_id=subject,
+                defaults={'status': status_val, 'note': '', 'clazz_id': clazz, 'teacher': t}
+            )
+            ids.append(obj.id)
+        return Response({'ok': True, 'ids': ids})
+
+    # ---- read back saved marks for a class/day (+ optional subject) ----
+    @action(detail=False, methods=['get'], url_path='by-class-day')
+    def by_class_day(self, request):
+        """
+        GET /api/attendance/by-class-day/?class=<id>&date=YYYY-MM-DD&subject=<id?>
+        Returns: [{"student_id":..., "status":"present|absent|late|excused", "note": "..."}]
+        """
+        clazz = request.query_params.get('class')
+        dt = request.query_params.get('date')
+        subject = request.query_params.get('subject')
+        if not clazz or not dt:
+            return Response({'detail': 'class and date are required'}, status=400)
+        try:
+            date.fromisoformat(dt)
+        except Exception:
+            return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
+
+        qs = self.get_queryset().filter(clazz_id=clazz, date=dt)
+        if subject:
+            qs = qs.filter(subject_id=subject)
+        data = qs.values('student_id', 'status', 'note')
+        return Response(list(data))
+
+    # ---- "Kelmaganlar" list (plain array; compatible with current JS) ----
+    @action(detail=False, methods=['get'], url_path='absent')
+    def absent(self, request):
+        """
+        GET /api/attendance/absent/?date=YYYY-MM-DD&class=<id?>
+        Returns: [{"student_id", "full_name", "class_name", "parent_phone"}, ...]
+        (one row per student even if multiple lessons absent)
+        """
+        date_str = request.query_params.get('date')
+        if not date_str:
+            return Response({'detail': 'date is required (YYYY-MM-DD)'}, status=400)
+        try:
+            date.fromisoformat(date_str)
+        except Exception:
+            return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
+
+        class_id = request.query_params.get('class')
+
+        qs = self.get_queryset().filter(date=date_str, status='absent')
+        if class_id:
+            qs = qs.filter(clazz_id=class_id)
+
+        # PostgreSQL distinct-on to keep one row per student
+        qs = qs.order_by('student_id', 'id').distinct('student_id')
+
+        rows = []
+        for a in qs.select_related('student', 'clazz'):
+            s = a.student
+            full_name = (
+                f"{getattr(s, 'last_name', '')} {getattr(s, 'first_name', '')}".strip()
+                or getattr(s, 'full_name', '')
+                or f"#{s.id}"
+            )
+            class_name = a.clazz.name if a.clazz else (getattr(s.clazz, 'name', '') if getattr(s, 'clazz', None) else '')
+            rows.append({
+                'student_id': s.id,
+                'full_name': full_name,
+                'class_name': class_name,
+                'parent_phone': getattr(s, 'parent_phone', '') or '',
+            })
+        return Response(rows)
 
 class GradeViewSet(viewsets.ModelViewSet):
     queryset = Grade.objects.select_related('student', 'subject', 'teacher').all()
@@ -678,3 +821,90 @@ class OperatorEnrollView(APIView):
             'parent_username': phone1,     # (login uses phone)
             'temp_password'  : temp_password,  # only present if created
         }, status=201)
+
+# === School stats API ===
+from datetime import date
+from django.db import models
+from django.db.models import Count
+from django.db.models.functions import TruncMonth
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import permissions
+
+class SchoolStatsView(APIView):
+    """
+    GET /api/stats/school/
+    Returns:
+    {
+      "totals": {"students": int, "classes": int, "teachers": int, "active_students": int},
+      "classes": [{"id": int, "name": str, "students_count": int}],
+      "registrations": {
+        "year": 2025,
+        "available": true|false,
+        "monthly": [{"month": "2025-01", "count": 12}, ...],
+        "total": int
+      }
+    }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        role = getattr(request.user, "role", "")
+        if role not in ("admin", "registrar", "operator", "teacher"):
+            return Response({"detail": "Forbidden"}, status=403)
+
+        # Totals
+        from .models import Student, SchoolClass, Teacher
+
+        # active_students if model has 'status'
+        field_names = {f.name for f in Student._meta.get_fields()}
+        has_status = "status" in field_names
+        students_q = Student.objects.all()
+        active_q = Student.objects.filter(status="active") if has_status else students_q
+
+        totals = {
+            "students": students_q.count(),
+            "active_students": active_q.count(),
+            "classes": SchoolClass.objects.count(),
+            "teachers": Teacher.objects.count(),
+        }
+
+        # Classes with student counts
+        classes = (
+            SchoolClass.objects
+            .annotate(students_count=Count("students"))
+            .order_by("name")
+            .values("id", "name", "students_count")
+        )
+
+        # Registrations this year — try to find a date field on Student
+        year = date.today().year
+        date_candidates = [
+            "enrolled_at", "enrolled_date", "admission_date",
+            "registered_at", "created_at", "created", "date_joined",
+        ]
+        date_fields = {
+            f.name for f in Student._meta.get_fields()
+            if isinstance(f, (models.DateField, models.DateTimeField))
+        }
+        date_field = next((d for d in date_candidates if d in date_fields), None)
+
+        registrations = {"year": year, "available": bool(date_field), "monthly": [], "total": 0}
+        if date_field:
+            qs = (Student.objects
+                  .filter(**{f"{date_field}__year": year})
+                  .annotate(m=TruncMonth(date_field))
+                  .values("m")
+                  .annotate(n=Count("id"))
+                  .order_by("m"))
+            monthly = [{"month": (row["m"].strftime("%Y-%m") if row["m"] else None),
+                        "count": row["n"]} for row in qs]
+            registrations["monthly"] = monthly
+            registrations["total"] = sum(x["count"] for x in monthly)
+
+        return Response({
+            "totals": totals,
+            "classes": list(classes),
+            "registrations": registrations,
+        })
+

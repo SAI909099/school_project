@@ -15,7 +15,7 @@ from .views import (
     TeacherDashViewSet, ParentViewSet,
 
     # Operator one-shot enroll
-    OperatorEnrollView,
+    OperatorEnrollView, SchoolStatsView,
 )
 
 router = DefaultRouter()
@@ -53,4 +53,5 @@ urlpatterns = [
 
     # Operator: single-shot enroll (creates parent if needed, adds student, links guardian)
     path('operator/enroll/', OperatorEnrollView.as_view(), name='operator-enroll'),
+    path('stats/school/', SchoolStatsView.as_view(), name='school-stats'),  # <-- add
 ]

@@ -85,24 +85,78 @@ class Payment(models.Model):
         inv.recompute_status()
         inv.save(update_fields=['paid_uzs', 'status', 'updated_at'])
 
-# billing/models.py (append)
+
+
+
+# billing/models.py
+from django.db import models
+from django.utils import timezone
+from accounts.models import User
+
 class SalaryPayout(models.Model):
     """
-    Minimal checklist row for salaries.
-    If you want to link real staff later, add teacher = models.ForeignKey(Teacher, ...)
+    One row per user per month.
+    month = first day of month (use utils.parse_month)
     """
-    month = models.DateField(help_text="Oyning birinchi kuni sifatida saqlanadi (YYYY-MM-01)")
-    fio = models.CharField(max_length=200)          # "F.I.O"
-    date = models.DateField()                       # planned or actual date
+    month = models.DateField()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='salary_payouts')
+    amount_uzs = models.DecimalField(max_digits=12, decimal_places=0, default=0)
     paid = models.BooleanField(default=False)
+    paid_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=['month', 'fio', 'date']),
-        ]
-        unique_together = (('month', 'fio', 'date'),)
-        ordering = ['fio', 'date']
+        unique_together = (('month', 'user'),)
+        indexes = [models.Index(fields=['month', 'user'])]
 
     def __str__(self):
-        return f"{self.month:%Y-%m} | {self.fio} | {self.date} | {'paid' if self.paid else 'unpaid'}"
+        return f"{self.month} — {self.user} — {self.amount_uzs} ({'paid' if self.paid else 'unpaid'})"
 
+
+class SalaryMonthLock(models.Model):
+    """
+    If a month is locked, edits are forbidden.
+    """
+    month = models.DateField(unique=True)
+    locked_at = models.DateTimeField(default=timezone.now)
+    locked_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return f"Locked {self.month}"
+
+# billing/models.py (add)
+from django.conf import settings
+# billing/models.py
+from django.db import models
+from django.conf import settings
+
+AMT = dict(max_digits=12, decimal_places=0, default=0)
+
+class Expense(models.Model):
+    METHOD = (
+        ('cash', 'Naqd'),
+        ('card', 'Karta'),
+        ('transfer', 'O‘tkazma'),
+    )
+    CATEGORY = (
+        ('salary', 'Oylik to‘lov'),
+        ('food', 'Oziq-ovqat'),
+        ('tools', 'Asbob-uskuna'),
+        ('utility', 'Kommunal to‘lov'),
+        ('transport', 'Transport'),
+        ('repair', 'Ta’mirlash'),
+        ('other', 'Boshqa'),
+    )
+
+    date       = models.DateField()
+    amount_uzs = models.DecimalField(**AMT)
+    method     = models.CharField(max_length=10, choices=METHOD, default='cash')
+    category   = models.CharField(max_length=16, choices=CATEGORY, default='other')
+    reason     = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-id']
+
+    def __str__(self):
+        return f"{self.date} {self.get_category_display()} {self.amount_uzs}"

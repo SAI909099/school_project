@@ -6,6 +6,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>School Moliya</title>
   <link rel="stylesheet" href="{% static 'css/moliya-style.css' %}">
+  <style>
+    .card{background:#fff;border-radius:12px;box-shadow:0 3px 6px rgba(0,0,0,.08);padding:16px;margin-bottom:14px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{font-weight:600;display:block;margin-bottom:4px}
+    input[type="date"]{border:1px solid #ddd;border-radius:8px;padding:8px 10px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer}
+    .btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .btn.ghost{background:#fff}
+    .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .kpi{border:1px solid #eee;border-radius:12px;padding:14px}
+    .kpi h3{margin:0 0 8px}
+    .kpi .big{font-size:22px;font-weight:700;margin:2px 0 10px}
+    .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .meta div{background:#f8fafc;border-radius:8px;padding:8px 10px}
+    .charts{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+    .chart-card{border:1px solid #eee;border-radius:12px;padding:14px}
+    .muted{color:#6b7280}
+    @media (max-width:1100px){.charts{grid-template-columns:1fr}}
+  </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -39,29 +58,77 @@
 
       <h2 class="page-title">Moliya</h2>
 
-      <!-- Finance Cards -->
-      <div class="finance-cards">
-        <div class="finance-card green">
+      <!-- Date range -->
+      <div class="card">
+        <div class="row">
+          <div>
+            <label>Dan</label>
+            <input type="date" id="fromDate">
+          </div>
+          <div>
+            <label>Gacha</label>
+            <input type="date" id="toDate">
+          </div>
+          <button id="btnLoad" class="btn">Yuklash</button>
+          <button id="btnThisMonth" class="btn ghost">Joriy oy</button>
+          <div style="margin-left:auto" class="muted" id="rangeInfo"></div>
+        </div>
+      </div>
+
+      <!-- KPI cards -->
+      <div class="kpi-grid">
+        <div class="kpi">
           <h3>Kirim</h3>
-          <p class="amount">—</p>
-          <button class="add-btn">Qo‘shish +</button>
+          <div class="big" id="incomeTotal">—</div>
+          <div class="meta">
+            <div>Naqd: <b id="incomeCash">—</b></div>
+            <div>Karta: <b id="incomeCard">—</b></div>
+            <div>O‘tkazma: <b id="incomeTransfer">—</b></div>
+          </div>
         </div>
 
-        <div class="finance-card red">
+        <div class="kpi">
           <h3>Chiqim</h3>
-          <p class="amount">—</p>
-          <button class="add-btn">Qo‘shish +</button>
+          <div class="big" id="expenseTotal">—</div>
+          <div class="meta">
+            <div>Naqd: <b id="expenseCash">—</b></div>
+            <div>Karta: <b id="expenseCard">—</b></div>
+            <div>O‘tkazma: <b id="expenseTransfer">—</b></div>
+          </div>
         </div>
 
-        <div class="finance-card blue">
-          <h3>Sof foyda (oylik)</h3>
-          <p class="amount">—</p>
+        <div class="kpi">
+          <h3>Sof foyda</h3>
+          <div class="big" id="profit">—</div>
+          <div class="meta">
+            <div>Balans: <b id="balance">—</b></div>
+            <div>Qarzdorlar: <b id="debtorsCount">—</b></div>
+            <div>Davr: <b id="periodLabel">—</b></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts">
+        <div class="chart-card">
+          <h3>Kunlik kirim / chiqim</h3>
+          <canvas id="lineChart" height="140"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Kirim (usul bo‘yicha)</h3>
+          <canvas id="pieIncome" height="220"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Chiqim (usul bo‘yicha)</h3>
+          <canvas id="pieExpense" height="220"></canvas>
         </div>
       </div>
     </main>
   </div>
 
-<script>window.API_BASE = '/api/billing';</script>
-<script src="{% static 'js/moliya-main.js' %}" defer></script>
+  <script>window.API_BASE = '/api/billing';</script>
+  <!-- Chart.js (CDN) – you can also serve it locally via staticfiles -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{% static 'js/moliya-main.js' %}" defer></script>
 </body>
 </html>

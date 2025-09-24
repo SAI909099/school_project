@@ -1,34 +1,94 @@
+# billing/views.py
+
 from datetime import date, timedelta
-from django.db.models import Sum, Q
+from django.db import transaction
+from django.db.models import Sum, Q, F
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from academics.models import Student, SchoolClass
-from accounts.models import User
-from .models import TuitionPlan, Invoice, Payment
-from .serializers import TuitionPlanSerializer, InvoiceSerializer, PaymentSerializer
+from .models import TuitionPlan, Invoice, Payment, SalaryPayout
+from .serializers import TuitionPlanSerializer, InvoiceSerializer, PaymentSerializer, ExpenseSerializer
 from .permissions import IsAdminOrAccountantWrite
 from .utils import month_first, parse_month
+
+
+# =========================
+# Tuition Plans
+# =========================
 
 class TuitionPlanViewSet(viewsets.ModelViewSet):
     queryset = TuitionPlan.objects.select_related('clazz').all()
     serializer_class = TuitionPlanSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrAccountantWrite]
 
+    @action(detail=False, methods=['post'], url_path='bulk-set')
+    def bulk_set(self, request):
+        """
+        POST /api/billing/plans/bulk-set/
+        Body:
+          {
+            "all": true,                # optional; if false, pass class_ids
+            "class_ids": [1,2,3],       # optional if 'all' is true
+            "amount_uzs": 450000,       # required, > 0
+            "only_missing": false       # optional; if true, do NOT overwrite existing plans
+          }
+        """
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'accountant'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        try:
+            amount = int(request.data.get('amount_uzs', 0))
+        except Exception:
+            return Response({'detail': 'amount_uzs must be integer'}, status=400)
+        if amount <= 0:
+            return Response({'detail': 'amount_uzs must be > 0'}, status=400)
+
+        only_missing = bool(request.data.get('only_missing', False))
+        class_ids = request.data.get('class_ids')
+        if request.data.get('all') or not class_ids:
+            class_ids = list(SchoolClass.objects.values_list('id', flat=True))
+
+        created, updated = 0, 0
+        with transaction.atomic():
+            for cid in class_ids:
+                plan, was_created = TuitionPlan.objects.get_or_create(
+                    clazz_id=cid,
+                    defaults={'amount_uzs': amount}
+                )
+                if was_created:
+                    created += 1
+                else:
+                    if only_missing:
+                        continue
+                    if plan.amount_uzs != amount:
+                        plan.amount_uzs = amount
+                        plan.save(update_fields=['amount_uzs'])
+                        updated += 1
+
+        return Response({'ok': True, 'created': created, 'updated': updated, 'count': len(class_ids)})
+
+
+# =========================
+# Invoices
+# =========================
+
 class InvoiceViewSet(viewsets.ModelViewSet):
-    queryset = Invoice.objects.select_related('student','student__clazz').all()
+    queryset = Invoice.objects.select_related('student', 'student__clazz').all()
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrAccountantWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
         u = self.request.user
-        # Parents see only their children; Teachers see their class students; Others see all
-        if u.role == 'parent':
+        # Role scoping
+        if getattr(u, 'role', None) == 'parent':
             child_ids = u.children_links.values_list('student_id', flat=True)
             qs = qs.filter(student_id__in=child_ids)
-        elif u.role == 'teacher':
+        elif getattr(u, 'role', None) == 'teacher':
             try:
                 t = u.teacher_profile
                 qs = qs.filter(Q(student__clazz__class_teacher=t) | Q(student__clazz__schedule__teacher=t))
@@ -48,9 +108,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def generate(self, request):
-        """Generate monthly invoices for all active students (optionally filter by class). Params: month=YYYY-MM, class, due_day=10, default_amount."""
-        if request.user.role not in ('admin','accountant'):
+        """
+        Generate monthly invoices for all active students (optionally filter by class).
+        Query params: month=YYYY-MM, class=<id>, due_day=10, default_amount=<int>
+        """
+        if getattr(request.user, 'role', None) not in ('admin', 'accountant'):
             return Response({'detail': 'Forbidden'}, status=403)
+
         m = request.query_params.get('month')
         if not m:
             return Response({'detail': 'month=YYYY-MM required'}, status=400)
@@ -62,6 +126,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         students = Student.objects.filter(status='active')
         if class_id:
             students = students.filter(clazz_id=class_id)
+
         created, updated = 0, 0
         for s in students.select_related('clazz'):
             plan = getattr(s.clazz, 'tuition_plan', None)
@@ -69,7 +134,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             inv, was_created = Invoice.objects.get_or_create(
                 student=s, month=month_dt,
                 defaults={
-                    'amount_uzs': amt, 'discount_uzs': 0, 'penalty_uzs': 0, 'paid_uzs': 0, 'status': 'unpaid',
+                    'amount_uzs': amt,
+                    'discount_uzs': 0,
+                    'penalty_uzs': 0,
+                    'paid_uzs': 0,
+                    'status': 'unpaid',
                     'due_date': month_dt.replace(day=min(due_day, 28))
                 }
             )
@@ -89,7 +158,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         qs = self.get_queryset()
         today = date.today()
         qs = qs.filter(~Q(status='paid'), due_date__lt=today)
-        month = request.query_params.get('month')
+        month = self.request.query_params.get('month')
         if month:
             qs = qs.filter(month=parse_month(month))
         return Response(self.serializer_class(qs, many=True).data)
@@ -101,24 +170,29 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         inv.save(update_fields=['status'])
         return Response(self.serializer_class(inv).data)
 
+
+# =========================
+# Payments
+# =========================
+
 class PaymentViewSet(viewsets.ModelViewSet):
-    queryset = Payment.objects.select_related('invoice','student','student__clazz').all()
+    queryset = Payment.objects.select_related('invoice', 'student', 'student__clazz').all()
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrAccountantWrite]
 
     def get_queryset(self):
         qs = super().get_queryset()
         u = self.request.user
-        if u.role == 'parent':
+        if getattr(u, 'role', None) == 'parent':
             child_ids = u.children_links.values_list('student_id', flat=True)
             qs = qs.filter(student_id__in=child_ids)
-        elif u.role == 'teacher':
+        elif getattr(u, 'role', None) == 'teacher':
             try:
                 t = u.teacher_profile
                 qs = qs.filter(Q(student__clazz__class_teacher=t) | Q(student__clazz__schedule__teacher=t))
             except Exception:
                 qs = qs.none()
-        # filters
+        # Filters
         month = self.request.query_params.get('month')
         if month:
             qs = qs.filter(invoice__month=parse_month(month))
@@ -127,14 +201,19 @@ class PaymentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(student_id=student)
         return qs.distinct()
 
+
+# =========================
+# Student Billing (per-student quick endpoints)
+# =========================
+
 class StudentBillingViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def _can_view(self, request, student_id: int) -> bool:
         u = request.user
-        if u.role in ('admin','accountant','registrar','teacher'):
+        if getattr(u, 'role', None) in ('admin', 'accountant', 'registrar', 'teacher'):
             return True
-        if u.role == 'parent':
+        if getattr(u, 'role', None) == 'parent':
             return u.children_links.filter(student_id=student_id).exists()
         return False
 
@@ -143,10 +222,18 @@ class StudentBillingViewSet(viewsets.ViewSet):
         if not self._can_view(request, student_id):
             return Response({'detail': 'Forbidden'}, status=403)
         inv = Invoice.objects.filter(student_id=student_id)
-        totals = inv.aggregate(total_due=Sum(models.F('amount_uzs') - models.F('discount_uzs') + models.F('penalty_uzs')), total_paid=Sum('paid_uzs'))
+        totals = inv.aggregate(
+            total_due=Sum(F('amount_uzs') - F('discount_uzs') + F('penalty_uzs')),
+            total_paid=Sum('paid_uzs')
+        )
         total_due = int(totals['total_due'] or 0)
         total_paid = int(totals['total_paid'] or 0)
-        return Response({'student': int(student_id), 'total_due_uzs': total_due, 'total_paid_uzs': total_paid, 'balance_uzs': total_due - total_paid})
+        return Response({
+            'student': int(student_id),
+            'total_due_uzs': total_due,
+            'total_paid_uzs': total_paid,
+            'balance_uzs': total_due - total_paid
+        })
 
     @action(detail=False, methods=['get'], url_path='(?P<student_id>[^/.]+)/invoices')
     def invoices(self, request, student_id=None):
@@ -162,13 +249,14 @@ class StudentBillingViewSet(viewsets.ViewSet):
         qs = Payment.objects.filter(student_id=student_id).order_by('-paid_at')
         return Response(PaymentSerializer(qs, many=True).data)
 
-from datetime import date
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+
+# =========================
+# Summary / Reports
+# =========================
 
 class SummaryView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
         # TODO: replace with real aggregation
         return Response({
@@ -178,8 +266,10 @@ class SummaryView(APIView):
             "debtors_count": 12,
         })
 
+
 class PaymentsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
         t = request.query_params.get('type', 'income')
         # TODO: replace with queryset results
@@ -195,8 +285,10 @@ class PaymentsView(APIView):
             ]
         return Response(data)
 
+
 class DebtorsView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request):
         # TODO: replace with real debt query
         data = [
@@ -206,28 +298,26 @@ class DebtorsView(APIView):
         return Response(data)
 
 
-# billing/views.py (append)
-from rest_framework.permissions import IsAuthenticated
-from .models import SalaryPayout
-from .utils import parse_month  # you already use this in invoices/payments
+# =========================
+# Salaries (optional, for /moliya/oylik/)
+# =========================
 
 class SalariesListView(APIView):
     """
     GET /api/billing/salaries/?month=YYYY-MM
     Returns: [{fio, date, paid}, ...]
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         m = request.query_params.get('month')
         if not m:
-            # default: current month
-            from datetime import date
             m = date.today().strftime('%Y-%m')
         mdt = parse_month(m)
         rows = SalaryPayout.objects.filter(month=mdt).order_by('fio', 'date')
         data = [{'fio': r.fio, 'date': r.date.isoformat(), 'paid': bool(r.paid)} for r in rows]
         return Response(data)
+
 
 class SalariesMarkView(APIView):
     """
@@ -235,34 +325,33 @@ class SalariesMarkView(APIView):
     body: {"month": "YYYY-MM", "items": [{"fio": "...", "date": "YYYY-MM-DD", "paid": true}, ...]}
     Upserts rows by (month, fio, date).
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         role = getattr(request.user, 'role', '')
-        if role not in ('admin','accountant'):
+        if role not in ('admin', 'accountant'):
             return Response({'detail': 'Forbidden'}, status=403)
 
         m = (request.data.get('month') or '').strip()
         items = request.data.get('items') or []
         if not m:
-            return Response({'detail':'month required (YYYY-MM)'}, status=400)
+            return Response({'detail': 'month required (YYYY-MM)'}, status=400)
         try:
             mdt = parse_month(m)
         except Exception:
-            return Response({'detail':'invalid month format'}, status=400)
+            return Response({'detail': 'invalid month format'}, status=400)
 
         created = 0
         updated = 0
         for it in items:
             fio = (it.get('fio') or '').strip()
-            dt  = it.get('date')
+            dt = it.get('date')
             paid = bool(it.get('paid'))
             if not fio or not dt:
                 continue
             try:
-                # normalize (ensures date is valid)
-                from datetime import date as _d
                 y, mo, d = map(int, dt.split('-'))
+                from datetime import date as _d
                 dtx = _d(y, mo, d)
             except Exception:
                 continue
@@ -275,3 +364,369 @@ class SalariesMarkView(APIView):
             updated += 0 if was_created else 1
 
         return Response({'ok': True, 'created': created, 'updated': updated})
+
+
+# billing/views.py  (add imports at top)
+from django.utils import timezone
+from accounts.models import User
+from academics.models import Teacher
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from .models import SalaryPayout, SalaryMonthLock
+from .utils import parse_month
+
+
+# ---- STAFF LIST FOR A MONTH ----
+class SalariesStaffView(APIView):
+    """
+    GET /api/billing/salaries/staff/?month=YYYY-MM
+    Returns:
+    {
+      "locked": true|false,
+      "items":[
+        {"user": 12, "full_name":"...", "role":"teacher", "specialty":"Matematika", "amount_uzs": 0, "paid": false}
+      ]
+    }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        m = request.query_params.get('month')
+        if not m:
+            from datetime import date
+            m = date.today().strftime('%Y-%m')
+        month_dt = parse_month(m)
+
+        locked = SalaryMonthLock.objects.filter(month=month_dt).exists()
+
+        # Which roles to include in salaries page:
+        roles = ('teacher', 'accountant', 'registrar', 'operator', 'admin')
+        staff = list(User.objects.filter(role__in=roles).order_by('last_name', 'first_name'))
+
+        # Map teacher -> specialty
+        teachers = {t.user_id: t for t in Teacher.objects.select_related('specialty')}
+        # Prefetch existing payouts
+        existing = {
+            (sp.user_id): sp
+            for sp in SalaryPayout.objects.filter(month=month_dt, user_id__in=[u.id for u in staff])
+        }
+
+        items = []
+        for u in staff:
+            full = f"{(u.first_name or '').strip()} {(u.last_name or '').strip()}".strip() or (
+                        getattr(u, 'phone', '') or str(u))
+            specialty = ""
+            if u.role == 'teacher':
+                t = teachers.get(u.id)
+                specialty = t.specialty.name if (t and t.specialty) else ""
+            sp = existing.get(u.id)
+            items.append({
+                "user": u.id,
+                "full_name": full,
+                "role": u.role or "",
+                "specialty": specialty,
+                "amount_uzs": int(sp.amount_uzs) if sp else 0,
+                "paid": bool(sp.paid) if sp else False,
+            })
+
+        return Response({"locked": locked, "items": items})
+
+
+# ---- SAVE / UPSERT SALARIES FOR A MONTH ----
+class SalariesMarkView(APIView):
+    """
+    POST /api/billing/salaries/mark/
+    {
+      "month": "YYYY-MM",
+      "items":[{"user":12,"amount_uzs":450000,"paid":true}, ...]
+    }
+    Block if month is locked.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'accountant'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        m = (request.data.get('month') or '').strip()
+        items = request.data.get('items') or []
+        if not m:
+            return Response({'detail': 'month required (YYYY-MM)'}, status=400)
+        try:
+            month_dt = parse_month(m)
+        except Exception:
+            return Response({'detail': 'invalid month format'}, status=400)
+
+        # Check lock
+        if SalaryMonthLock.objects.filter(month=month_dt).exists():
+            return Response({'detail': 'This month is locked'}, status=400)
+
+        created = 0
+        updated = 0
+        for it in items:
+            uid = it.get('user')
+            amt = int(it.get('amount_uzs') or 0)
+            paid = bool(it.get('paid'))
+            if not uid:
+                continue
+            obj, was_created = SalaryPayout.objects.get_or_create(
+                month=month_dt, user_id=uid,
+                defaults={'amount_uzs': amt, 'paid': paid, 'paid_at': timezone.now() if paid else None}
+            )
+            if was_created:
+                created += 1
+            else:
+                obj.amount_uzs = amt
+                # keep paid_at if already paid; set if changing to paid
+                if paid and not obj.paid:
+                    obj.paid_at = timezone.now()
+                obj.paid = paid
+                obj.save(update_fields=['amount_uzs', 'paid', 'paid_at'])
+                updated += 1
+
+        return Response({'ok': True, 'created': created, 'updated': updated})
+
+
+# ---- FINALIZE / LOCK MONTH ----
+class SalariesFinalizeView(APIView):
+    """
+    POST /api/billing/salaries/finalize/
+    {"month":"YYYY-MM"}
+    Creates a lock to prevent further edits.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'accountant'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        m = (request.data.get('month') or '').strip()
+        if not m:
+            return Response({'detail': 'month required'}, status=400)
+        try:
+            month_dt = parse_month(m)
+        except Exception:
+            return Response({'detail': 'invalid month format'}, status=400)
+
+        if SalaryMonthLock.objects.filter(month=month_dt).exists():
+            return Response({'detail': 'Already locked'}, status=400)
+
+        SalaryMonthLock.objects.create(month=month_dt, locked_by=request.user)
+        return Response({'ok': True, 'locked': True})
+
+# billing/views.py
+from django.utils.dateparse import parse_date
+from django.db.models import Sum
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+
+from .models import Payment, SalaryPayout, SalaryMonthLock
+
+# billing/views.py (replace PaymentsView)
+class PaymentsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        t = (request.query_params.get('type') or 'income').lower()
+        from_str = request.query_params.get('from')
+        to_str = request.query_params.get('to')
+        inc_sal = request.query_params.get('include_salaries') in ('1', 'true', 'yes')
+
+        dfrom = parse_date(from_str) if from_str else None
+        dto   = parse_date(to_str) if to_str else None
+
+        if t == 'income':
+            qs = Payment.objects.all().select_related('student')
+            if dfrom: qs = qs.filter(paid_at__date__gte=dfrom)
+            if dto:   qs = qs.filter(paid_at__date__lte=dto)
+            data = [{
+                "id": p.id,
+                "date": p.paid_at.date().isoformat(),
+                "amount": int(p.amount_uzs),
+                "method": p.method,
+                "reason": f"Talaba to‘lovi — {p.student}",  # adjust if you want full name formatting
+                "kind": "income",
+            } for p in qs]
+            return Response(data)
+
+        # Expense = manual expenses + salaries (optional) + lock rollups (optional)
+        rows = []
+
+        # 1) Manual expenses
+        ex_qs = Expense.objects.all()
+        if dfrom: ex_qs = ex_qs.filter(date__gte=dfrom)
+        if dto:   ex_qs = ex_qs.filter(date__lte=dto)
+        for e in ex_qs:
+            rows.append({
+                "id": f"exp-{e.id}",
+                "date": e.date.isoformat(),
+                "amount": int(e.amount_uzs),
+                "method": e.method or "-",
+                "reason": e.reason or e.get_category_display(),
+                "kind": "manual",
+                "category": e.category,
+                "category_name": e.get_category_display(),
+            })
+
+        # 2) Salaries (if asked)
+        if inc_sal:
+            qs = SalaryPayout.objects.filter(paid=True).select_related('user')
+            if dfrom: qs = qs.filter(paid_at__date__gte=dfrom)
+            if dto:   qs = qs.filter(paid_at__date__lte=dto)
+            for s in qs:
+                full = f"{(s.user.first_name or '').strip()} {(s.user.last_name or '').strip()}".strip() or getattr(s.user, 'phone', '')
+                rows.append({
+                    "id": f"sal-{s.id}",
+                    "date": s.paid_at.date().isoformat() if s.paid_at else s.month.isoformat(),
+                    "amount": int(s.amount_uzs),
+                    "method": "salary",
+                    "reason": f"Oylik — {full}",
+                    "kind": "salary",
+                })
+
+            locks = SalaryMonthLock.objects.all()
+            if dfrom:
+                locks = locks.filter(month__gte=dfrom.replace(day=1))
+            if dto:
+                locks = locks.filter(month__lte=dto.replace(day=1))
+            for lock in locks:
+                total = SalaryPayout.objects.filter(month=lock.month, paid=True).aggregate(s=Sum('amount_uzs'))['s'] or 0
+                rows.append({
+                    "id": f"lock-{lock.id}",
+                    "date": lock.locked_at.date().isoformat(),
+                    "amount": int(total),
+                    "method": "—",
+                    "reason": f"Oyliklar yakuni — {lock.month.strftime('%Y-%m')}",
+                    "kind": "salary_total",
+                })
+
+        # sort by date ASC before returning (UI also sorts but this helps)
+        rows.sort(key=lambda r: r.get('date') or '')
+        return Response(rows)
+
+
+# billing/views.py (append imports)
+# billing/views.py
+from django.db.models import Q
+from rest_framework import viewsets, permissions
+from .models import Expense
+from .serializers import ExpenseSerializer
+from .permissions import IsAdminOrAccountantWrite
+
+class ExpenseViewSet(viewsets.ModelViewSet):
+    queryset = Expense.objects.all().order_by('-date','-id')
+    serializer_class = ExpenseSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrAccountantWrite]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qp = self.request.query_params
+
+        f = qp.get('from')      # YYYY-MM-DD
+        t = qp.get('to')        # YYYY-MM-DD
+        q = qp.get('q')         # text search
+        method = qp.get('method')
+        category = qp.get('category')
+
+        if f: qs = qs.filter(date__gte=f)
+        if t: qs = qs.filter(date__lte=t)
+        if method: qs = qs.filter(method=method)
+        if category: qs = qs.filter(category=category)
+        if q:
+            qs = qs.filter(
+                Q(reason__icontains=q) |
+                Q(method__icontains=q) |
+                Q(category__icontains=q)
+            )
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+# billing/views.py
+from datetime import date as _date, timedelta
+from django.db.models import Sum, Q
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from .models import Payment
+try:
+    from .models import Expense  # your manual expense model
+except Exception:
+    Expense = None  # allow code to run while model is being added
+
+class SummaryView(APIView):
+    """
+    GET /api/billing/summary/?from=YYYY-MM-DD&to=YYYY-MM-DD
+    Response:
+    {
+      from, to,
+      income, expense, balance, debtors_count,
+      income_by_method: {cash, card, transfer},
+      expense_by_method:{cash, card, transfer}
+    }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _month_bounds(self, today: _date):
+        first = today.replace(day=1)
+        next_month = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+        last = next_month - timedelta(days=1)
+        return first, last
+
+    def get(self, request):
+        # range
+        f_str = request.query_params.get('from')
+        t_str = request.query_params.get('to')
+
+        if not (f_str and t_str):
+            today = _date.today()
+            first, last = self._month_bounds(today)
+            f_str = f_str or first.isoformat()
+            t_str = t_str or last.isoformat()
+
+        # incomes
+        pay_qs = Payment.objects.filter(paid_at__date__gte=f_str, paid_at__date__lte=t_str)
+        income_total = pay_qs.aggregate(total=Sum('amount_uzs'))['total'] or 0
+        income_by_method = {}
+        for m, _ in getattr(Payment, 'METHOD', (('cash','Naqd'), ('card','Karta'), ('transfer','O‘tkazma'))):
+            income_by_method[m] = pay_qs.filter(method=m).aggregate(total=Sum('amount_uzs'))['total'] or 0
+
+        # expenses
+        expense_total = 0
+        expense_by_method = {'cash': 0, 'card': 0, 'transfer': 0}
+        if Expense is not None:
+            ex_qs = Expense.objects.filter(date__gte=f_str, date__lte=t_str)
+            expense_total = ex_qs.aggregate(total=Sum('amount_uzs'))['total'] or 0
+            for m, _ in getattr(Expense, 'METHOD', (('cash','Naqd'), ('card','Karta'), ('transfer','O‘tkazma'))):
+                expense_by_method[m] = ex_qs.filter(method=m).aggregate(total=Sum('amount_uzs'))['total'] or 0
+
+        # optional: real debtors_count (keep placeholder if not implemented)
+        debtors_count = 0
+        try:
+            from .models import Invoice
+            debtors_count = Invoice.objects.filter(~Q(status='paid')).values('student').distinct().count()
+        except Exception:
+            pass
+
+        balance = int(income_total) - int(expense_total)
+
+        return Response({
+            'from': f_str,
+            'to': t_str,
+            'income': int(income_total),
+            'expense': int(expense_total),
+            'balance': int(balance),
+            'debtors_count': int(debtors_count),
+            'income_by_method': {k: int(v or 0) for k, v in income_by_method.items()},
+            'expense_by_method': {k: int(v or 0) for k, v in expense_by_method.items()},
+        })
+

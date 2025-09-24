@@ -15,10 +15,13 @@
   const tblBody = document.querySelector('#tbl tbody');
   const qSearch = document.getElementById('qSearch');
 
-  const planClassSel = document.getElementById('planClassSel');
-  const planAmount = document.getElementById('planAmount');
-  const btnPlanSave = document.getElementById('btnPlanSave');
+  // Bulk plans UI
+  const planAmountAll = document.getElementById('planAmountAll');
+  const btnPlanApplyAll = document.getElementById('btnPlanApplyAll');
+  const planMultiSel = document.getElementById('planMultiSel');
+  const btnPlanApplySelected = document.getElementById('btnPlanApplySelected');
 
+  // Payment modal
   const payDlg = document.getElementById('payDlg');
   const dlgWho = document.getElementById('dlgWho');
   const payAmount = document.getElementById('payAmount');
@@ -28,7 +31,6 @@
   const btnPayCancel = document.getElementById('btnPayCancel');
 
   // State
-  let invoices = [];   // raw list from API
   let classes = [];    // [{id,name}]
   let plansByClass = new Map(); // class_id -> {id, amount_uzs}
   let currentPay = null; // {invoice_id, student_id, name}
@@ -44,55 +46,80 @@
     if (status === 'paid' && Number(balance) < 0) return `<span class="pill prepaid">prepaid</span>`;
     return `<span class="pill ${status}">${status}</span>`;
   }
-  async function getJSON(url){ const r=await fetch(url,{headers:HEADERS}); if(!r.ok) throw new Error(r.status); return r.json(); }
-  async function postJSON(url, body){ const r=await fetch(url,{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(body)}); const t=await r.text(); let j={}; try{j=t?JSON.parse(t):{}}catch{} if(!r.ok) throw new Error(j.detail||t||('HTTP '+r.status)); return j; }
-  async function putJSON(url, body){ const r=await fetch(url,{method:'PUT',headers:JSON_HEADERS,body:JSON.stringify(body)}); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  async function getJSON(url){
+    const r = await fetch(url, { headers: HEADERS });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+  }
+  async function postJSON(url, body){
+    const r = await fetch(url, { method:'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+    const text = await r.text();
+    let json = {};
+    try { json = text ? JSON.parse(text) : {}; } catch {}
+    if (!r.ok) throw new Error(json.detail || text || `HTTP ${r.status}`);
+    return json;
+  }
+  async function putJSON(url, body){
+    const r = await fetch(url, { method:'PUT', headers: JSON_HEADERS, body: JSON.stringify(body) });
+    const text = await r.text();
+    const json = text ? JSON.parse(text) : {};
+    if (!r.ok) throw new Error(json.detail || text || `HTTP ${r.status}`);
+    return json;
+  }
 
-  // Load classes (directory API you already have)
+  // Load classes (directory API)
   async function loadClasses(){
     const data = await getJSON('/api/dir/classes/');
     classes = data || [];
+    // Filters
     classSel.innerHTML = '<option value="">— hammasi —</option>';
-    planClassSel.innerHTML = '<option value="">— tanlang —</option>';
-    classes.forEach(c=>{
-      const opt1 = new Option(c.name, c.id);
-      const opt2 = new Option(c.name, c.id);
-      classSel.add(opt1); planClassSel.add(opt2);
-    });
+    classes.forEach(c => classSel.add(new Option(c.name, c.id)));
+    // Bulk multi-select
+    planMultiSel.innerHTML = '';
+    classes.forEach(c => planMultiSel.add(new Option(c.name, c.id)));
   }
 
   // Load existing tuition plans
   async function loadPlans(){
     const data = await getJSON(API + '/plans/');
     plansByClass.clear();
-    (data||[]).forEach(p=>plansByClass.set(String(p.clazz), p));
+    (data||[]).forEach(p => plansByClass.set(String(p.clazz), p));
   }
 
-  // When plan class changed, show amount
-  planClassSel.addEventListener('change', ()=>{
-    const cid = planClassSel.value;
-    if (!cid) { planAmount.value=''; return; }
-    const p = plansByClass.get(String(cid));
-    planAmount.value = p ? Number(p.amount_uzs) : '';
-  });
+  // Try bulk-apply endpoint; fallback to looping per class
+  async function applyPlans(amount, classIds) {
+    // 1) Try bulk endpoint
+    try {
+      const body = classIds && classIds.length
+        ? { amount_uzs: Number(amount), class_ids: classIds.map(Number) }
+        : { amount_uzs: Number(amount), scope: 'all' };
+      const res = await postJSON(API + '/plans/bulk-apply/', body);
+      return res;
+    } catch (e) {
+      // 2) Fallback to per-class create/update
+      const targets = (classIds && classIds.length)
+        ? classIds.map(String)
+        : classes.map(c => String(c.id));
+      let created = 0, updated = 0, failed = 0;
 
-  // Save tuition plan (create or update)
-  btnPlanSave.addEventListener('click', async ()=>{
-    const cid = planClassSel.value;
-    const amt = Number(planAmount.value||0);
-    if (!cid || !amt) return alert('Sinf va narxni kiriting.');
-    try{
-      const existing = plansByClass.get(String(cid));
-      if (existing) {
-        const payload = { id: existing.id, clazz: Number(cid), amount_uzs: amt };
-        await putJSON(API + `/plans/${existing.id}/`, payload);
-      } else {
-        await postJSON(API + '/plans/', { clazz: Number(cid), amount_uzs: amt });
+      for (const cid of targets) {
+        try {
+          const existing = plansByClass.get(cid);
+          const payload = { clazz: Number(cid), amount_uzs: Number(amount) };
+          if (existing) {
+            await putJSON(API + `/plans/${existing.id}/`, { id: existing.id, ...payload });
+            updated++;
+          } else {
+            await postJSON(API + '/plans/', payload);
+            created++;
+          }
+        } catch {
+          failed++;
+        }
       }
-      await loadPlans();
-      alert('Saqlandi.');
-    }catch(e){ alert('Xatolik: '+e.message); }
-  });
+      return { ok: failed === 0, created, updated, failed };
+    }
+  }
 
   // Fetch invoices with filters; handle prepaid on client
   async function loadInvoices(){
@@ -108,16 +135,10 @@
     const data = await getJSON(url);
     let rows = Array.isArray(data) ? data : [];
 
-    // Mixin student/class names (InvoiceSerializer returns student id only).
-    // We fetch a light students list per class via /api/classes/<id>/students_az/ if needed – but
-    // to keep it simple, show just IDs unless you add a serializer that expands names.
-    // Alternative: we’ll enrich by a separate call per invoice’s student via /api/student/<id>/balance,
-    // but that’s heavier. For now we keep ID; (Bonus code below shows enrichment via a cache).
-    // ---- Bonus enrichment cache (best-effort) ----
+    // Name cache (best-effort)
     const nameCache = new Map();
     async function studentName(studentId){
       if (nameCache.has(studentId)) return nameCache.get(studentId);
-      // Try directory search (global) and cache first match
       try{
         const sj = await getJSON(`/api/dir/students/?q=${studentId}`);
         const m = (sj||[]).find(x=>x.id===studentId);
@@ -127,16 +148,13 @@
       }catch{ nameCache.set(studentId, `#${studentId}`); return `#${studentId}`; }
     }
 
-    // Status “prepaid” (balance < 0)
+    // “prepaid” filter (balance < 0)
     if (statusSel.value === '__prepaid') {
       rows = rows.filter(r => Number(r.balance_uzs) < 0);
     }
 
-    // Simple search (client-side)
     const q = (qSearch.value||'').toLowerCase().trim();
-    // we’ll filter by student name once we enrich names below.
 
-    // Render
     tblBody.innerHTML = '';
     for (const r of rows) {
       const sname = await studentName(r.student);
@@ -144,7 +162,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${sname}</td>
-        <td>${'' /* optional: class name if serializer expands */}</td>
+        <td>${'' /* (optional) class name if you expand serializer */}</td>
         <td>${yymm(r.month)}</td>
         <td>${som(r.amount_uzs)}</td>
         <td>${som(r.discount_uzs)}</td>
@@ -159,12 +177,13 @@
 
     // Wire payment buttons
     tblBody.querySelectorAll('.btn-pay').forEach(btn=>{
-      btn.addEventListener('click', (e)=>{
+      btn.addEventListener('click', ()=>{
         const inv = Number(btn.dataset.inv);
         const st  = Number(btn.dataset.st);
         const when = btn.dataset.month.slice(0,7);
-        currentPay = { invoice_id: inv, student_id: st, month: when, display: btn.closest('tr')?.firstChild?.textContent || `#${st}` };
-        dlgWho.textContent = `${currentPay.display} — ${when}`;
+        const display = btn.closest('tr')?.firstChild?.textContent || `#${st}`;
+        currentPay = { invoice_id: inv, student_id: st, month: when, display };
+        dlgWho.textContent = `${display} — ${when}`;
         payAmount.value = '';
         payMethod.value = 'cash';
         payNote.value = '';
@@ -178,7 +197,7 @@
     const m = monthInp.value || todayMonth();
     const cid = classSel.value;
     const due = 10;
-    const def = 0; // if no plan exists, fallback to 0 (or set default here)
+    const def = 0; // fallback price for classes without a plan
     const qs = new URLSearchParams({ month: m, due_day: String(due) });
     if (cid) qs.set('class', cid);
     if (def) qs.set('default_amount', String(def));
@@ -202,17 +221,44 @@
       amount_uzs: amt,
       method: payMethod.value,
       note: payNote.value||'',
-      // paid_at optional - backend defaults to now
     };
     try{
-      await postJSON(API + '/payments-model/', body);
+      await postJSON(API + '/payments-model/', body); // your CRUD viewset name
       payDlg.close();
       await loadInvoices();
     }catch(e){ alert('Xatolik: '+e.message); }
   });
   btnPayCancel.addEventListener('click', ()=> payDlg.close());
 
-  // Actions
+  // Bulk plan: ALL
+  btnPlanApplyAll.addEventListener('click', async ()=>{
+    const amt = Number(planAmountAll.value||0);
+    if (!amt) return alert('Narxni kiriting.');
+    try{
+      const res = await applyPlans(amt, null);
+      await loadPlans();
+      alert('Barcha sinflar uchun saqlandi.');
+    }catch(e){
+      alert('Xatolik: ' + e.message);
+    }
+  });
+
+  // Bulk plan: SELECTED
+  btnPlanApplySelected.addEventListener('click', async ()=>{
+    const amt = Number(planAmountAll.value||0);
+    if (!amt) return alert('Narxni kiriting.');
+    const selected = Array.from(planMultiSel.selectedOptions).map(o => Number(o.value));
+    if (!selected.length) return alert('Kamida bitta sinfni tanlang.');
+    try{
+      const res = await applyPlans(amt, selected);
+      await loadPlans();
+      alert('Tanlangan sinflar uchun saqlandi.');
+    }catch(e){
+      alert('Xatolik: ' + e.message);
+    }
+  });
+
+  // Filters / actions
   btnLoad.addEventListener('click', loadInvoices);
   monthInp.addEventListener('change', loadInvoices);
   classSel.addEventListener('change', loadInvoices);

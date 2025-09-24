@@ -1,6 +1,6 @@
 /* static/js/teacher-classes.js */
 (function () {
-  const API_BASE = (window.API_BASE || '/api/').replace(/\/+$/, '');
+  const API_BASE = (window.API_BASE || '/api').replace(/\/+$/, '');
 
   // ===== Auth guard =====
   const access = localStorage.getItem('access');
@@ -16,7 +16,7 @@
       if (ok) return api(path, opts);
       localStorage.clear(); window.location.href = '/login/'; return;
     }
-    if (!res.ok) throw new Error(await res.text().catch(()=>'') || `HTTP ${res.status}`);
+    if (!res.ok) throw new Error((await res.text().catch(()=>'')).trim() || `HTTP ${res.status}`);
     return res.json();
   }
   async function tryRefresh() {
@@ -30,39 +30,30 @@
     return false;
   }
 
-  function el(tag, attrs = {}, ...kids) {
+  const el = (tag, attrs = {}, ...kids) => {
     const e = document.createElement(tag);
     for (const [k,v] of Object.entries(attrs)) {
       if (k === 'class') e.className = v; else if (v != null) e.setAttribute(k,v);
     }
     for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(k));
     return e;
-  }
-  function todayISO() {
+  };
+  const todayISO = () => {
     const d = new Date(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0');
     return `${d.getFullYear()}-${m}-${day}`;
-  }
-  // Map JS Date weekday to model weekday: Mon..Sat = 1..6 (we treat Sun as 7)
-  function weekdayFromDate(d) {
-    const js = d.getDay(); // 0..6
-    return js === 0 ? 7 : js;
-  }
-  function weekdayFromISO(iso) {
-    const d = iso ? new Date(iso + 'T00:00:00') : new Date();
-    return weekdayFromDate(d);
-  }
+  };
+  const weekdayFromDate = (d) => (d.getDay() === 0 ? 7 : d.getDay());
+  const weekdayFromISO = (iso) => weekdayFromDate(iso ? new Date(iso+'T00:00:00') : new Date());
 
   // ===== Role enforcement & store current teacher id =====
-  let CURRENT_ME = null;
   let CURRENT_TEACHER_ID = null;
 
   async function loadMe() {
     const me = await api('/auth/me/');
     const role = me?.role;
     if (role === 'teacher') {
-      CURRENT_ME = me;
       CURRENT_TEACHER_ID = me?.teacher?.id || null;
-      return me;
+      return;
     }
     if (role === 'admin' || role === 'registrar') window.location.href = '/dashboard/';
     else if (role === 'parent') window.location.href = '/otaona/';
@@ -70,7 +61,7 @@
     throw new Error('Wrong role for page');
   }
 
-  // ===== inject minimal styles for status pills (safe if duplicates) =====
+  // ===== light styles =====
   (function injectStyles(){
     const css = `
     .status-pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;line-height:1;border:1px solid transparent}
@@ -85,6 +76,7 @@
     .stat-btn[data-val="absent"].active{background:#fde7ea;color:#c01a1a;border-color:#f3b8c0}
     .stat-btn[data-val="late"].active{background:#fff4e5;color:#a15e00;border-color:#f8d7a6}
     .stat-btn[data-val="excused"].active{background:#e8f1ff;color:#1a4fbf;border-color:#b9d1ff}
+    .badge-my-class{position:absolute; top:10px; right:10px; background:#4f46e5; color:#fff; padding:2px 8px; border-radius:999px; font-size:12px;}
     `;
     if (!document.getElementById('att-status-styles')) {
       const s = document.createElement('style');
@@ -94,7 +86,7 @@
     }
   })();
 
-  // ===== DOM targets =====
+  // ===== DOM =====
   const cardsWrap = document.querySelector('.cards');
   const main = document.querySelector('main.content') || document.body;
   const searchInput = document.querySelector('.topbar input[type="text"]');
@@ -103,7 +95,7 @@
   const panel = el('section', { class: 'attendance-panel', style: 'margin-top:16px; display:none;' });
   main.appendChild(panel);
 
-  // ===== Render: ALL classes (my class first) =====
+  // ===== Render classes =====
   let ALL_CLASSES = [];
 
   function renderCards(list) {
@@ -114,20 +106,15 @@
       return;
     }
     list.forEach(c => {
-      const isMyClass = (c.class_teacher === CURRENT_TEACHER_ID);
+      const teacherId = c.class_teacher?.id ?? c.class_teacher ?? c.class_teacher_id ?? null;
+      const isMyClass = (teacherId === CURRENT_TEACHER_ID);
+
       const card = el('div', {class:'card', style:'cursor:pointer; position:relative;'});
-      if (isMyClass) {
-        card.appendChild(
-          el('div', {
-            class: 'badge-my-class',
-            style: 'position:absolute; top:10px; right:10px; background:#4f46e5; color:#fff; padding:2px 8px; border-radius:999px; font-size:12px;'
-          }, 'Mening sinfim')
-        );
-      }
+      if (isMyClass) card.appendChild(el('div', {class:'badge-my-class'}, 'Mening sinfim'));
       card.append(
         el('h3', {}, c.name || ('Sinf #' + c.id)),
-        el('p', {}, `O‘quvchilar soni : ${c.student_count ?? '—'} ta`),
-        el('p', {}, el('b', {}, 'Kurator : '), (c.class_teacher_name || '—'))
+        el('p', {}, `O‘quvchilar soni : ${c.students_count ?? c.student_count ?? '—'} ta`),
+        el('p', {}, el('b', {}, 'Kurator : '), (c.class_teacher_name || c.teacher_name || '—'))
       );
       card.addEventListener('click', () => openAttendance(c));
       cardsWrap.append(card);
@@ -135,10 +122,11 @@
   }
 
   async function loadClasses() {
-    ALL_CLASSES = await api('/classes/');
+    // directory endpoint -> cheaper payload
+    ALL_CLASSES = await api('/dir/classes/');
     ALL_CLASSES.sort((a, b) => {
-      const aMine = (a.class_teacher === CURRENT_TEACHER_ID) ? 1 : 0;
-      const bMine = (b.class_teacher === CURRENT_TEACHER_ID) ? 1 : 0;
+      const aMine = ((a.class_teacher?.id ?? a.class_teacher ?? a.class_teacher_id) === CURRENT_TEACHER_ID) ? 1 : 0;
+      const bMine = ((b.class_teacher?.id ?? b.class_teacher ?? b.class_teacher_id) === CURRENT_TEACHER_ID) ? 1 : 0;
       if (aMine !== bMine) return bMine - aMine;
       return String(a.name || '').localeCompare(String(b.name || ''));
     });
@@ -154,14 +142,12 @@
     });
   }
 
-  // ===== Attendance: open, load students (status buttons UI), save & freeze =====
+  // ===== Attendance panel =====
   async function openAttendance(clazz) {
     panel.style.display = '';
     panel.innerHTML = '';
 
-    const header = el('div', {class:'panel-header'},
-      el('h3', {}, `Davomat — ${clazz.name}`),
-    );
+    const header = el('div', {class:'panel-header'}, el('h3', {}, `Davomat — ${clazz.name}`));
 
     const controls = el('div', {class:'controls', style:'display:flex; gap:12px; align-items:center; flex-wrap:wrap;'});
     const dateInp = el('input', {type:'date', value: todayISO()});
@@ -179,21 +165,15 @@
 
     const tableWrap = el('div', {class:'table-wrap'});
     const table = el('table', {class:'att-table'});
-    const thead = el('thead', {},
-      el('tr', {},
-        el('th', {}, '№'),
-        el('th', {}, 'F.I.O'),
-        el('th', {}, 'Holat'),
-        el('th', {}, 'Izoh')
-      )
-    );
+    const thead = el('thead', {}, el('tr', {},
+      el('th', {}, '№'), el('th', {}, 'F.I.O'), el('th', {}, 'Holat'), el('th', {}, 'Izoh')
+    ));
     const tbody = el('tbody', {});
     table.append(thead, tbody);
     tableWrap.append(table);
-
     panel.append(header, controls, tableWrap);
 
-    // cache full schedule for class once
+    // cache full schedule once
     let CLASS_SCHEDULE = [];
     async function ensureSchedule() {
       if (CLASS_SCHEDULE.length) return;
@@ -204,19 +184,16 @@
 
     function refillLessonsForDate() {
       lessonSel.innerHTML = '';
-      const wd = weekdayFromISO(dateInp.value); // 1..7
+      const wd = weekdayFromISO(dateInp.value);
       const filtered = (wd >= 1 && wd <= 6)
         ? CLASS_SCHEDULE.filter(x => Number(x.weekday) === wd)
         : [];
-
       filtered.forEach(item => {
         const st = (item.start_time || '').slice(0,5);
         const et = (item.end_time || '').slice(0,5);
-        const name = (item.subject_name || 'Fan');
-        const opt = el('option', { value: item.subject }, `${st || '--:--'}–${et || '--:--'} — ${name}`);
-        lessonSel.append(opt);
+        const name = (item.subject_name || item.subject_label || item.subject_title || 'Fan');
+        lessonSel.append(el('option', { value: item.subject }, `${st || '--:--'}–${et || '--:--'} — ${name}`));
       });
-
       if (!lessonSel.options.length) {
         lessonSel.append(el('option', {value:''}, 'Bu kunda dars yo‘q'));
       }
@@ -229,19 +206,16 @@
 
     function makeStatusGroup(studentId) {
       const g = el('div', { class:'stat-group', 'data-student': String(studentId) });
-      const opts = [
-        ['present','Kelgan'], ['absent','Kelmagan'],
-        ['late','Kechikkan'], ['excused','Sababli']
-      ];
-      opts.forEach(([val,label], idx) => {
-        const b = el('button', { type:'button', class:'stat-btn', 'data-val':val }, label);
-        if (idx===0) b.classList.add('active'); // default: present
-        b.addEventListener('click', ()=>{
-          g.querySelectorAll('.stat-btn').forEach(x=>x.classList.remove('active'));
-          b.classList.add('active');
+      [['present','Kelgan'], ['absent','Kelmagan'], ['late','Kechikkan'], ['excused','Sababli']]
+        .forEach(([val,label], idx) => {
+          const b = el('button', { type:'button', class:'stat-btn', 'data-val':val }, label);
+          if (idx===0) b.classList.add('active'); // default: present
+          b.addEventListener('click', ()=>{
+            g.querySelectorAll('.stat-btn').forEach(x=>x.classList.remove('active'));
+            b.classList.add('active');
+          });
+          g.appendChild(b);
         });
-        g.appendChild(b);
-      });
       return g;
     }
 
@@ -257,20 +231,17 @@
       });
     }
 
-    function freezeRow(tr, status) {
-      // Replace the group with a read-only colored pill
-      const holder = tr.querySelector('td[data-col="status"]');
-      if (!holder) return;
-      holder.innerHTML = '';
-      const pill = el('span', {class:`status-pill status-${status}`},
-        status==='present' ? 'Kelgan' :
-        status==='absent'  ? 'Kelmagan' :
-        status==='late'    ? 'Kechikkan' : 'Sababli'
-      );
-      holder.appendChild(pill);
-      // disable note input
-      const note = tr.querySelector('input[data-note]');
-      if (note) { note.readOnly = true; note.style.opacity = '.7'; }
+    function setStatusFor(studentId, status) {
+      const g = tbody.querySelector(`.stat-group[data-student="${studentId}"]`);
+      if (!g) return;
+      g.querySelectorAll('.stat-btn').forEach(x=>{
+        x.classList.toggle('active', x.getAttribute('data-val')===status);
+      });
+    }
+
+    function setNoteFor(studentId, note) {
+      const inp = tbody.querySelector(`input[data-note="${studentId}"]`);
+      if (inp) inp.value = note || '';
     }
 
     async function loadStudents() {
@@ -290,14 +261,37 @@
       });
     }
 
+    // === NEW: prefill saved marks for the chosen class/date/subject ===
+    async function prefillSaved() {
+      const dt = (dateInp.value || todayISO());
+      const subj = lessonSel.value ? Number(lessonSel.value) : null;
+      const qs = new URLSearchParams({ 'class': String(clazz.id), 'date': dt });
+      if (subj) qs.set('subject', String(subj));
+      try {
+        const rows = await api('/attendance/by-class-day/?' + qs.toString());
+        // rows: [{student_id, status, note}]
+        (rows || []).forEach(r => {
+          setStatusFor(r.student_id, r.status);
+          setNoteFor(r.student_id, r.note || '');
+        });
+      } catch (e) {
+        // silent (no saved data yet)
+      }
+    }
+
     await loadLessons();
     await loadStudents();
+    await prefillSaved(); // <— first prefill
 
-    dateInp.addEventListener('change', refillLessonsForDate);
+    dateInp.addEventListener('change', async () => { refillLessonsForDate(); await prefillSaved(); });
+    lessonSel.addEventListener('change', prefillSaved);
+
     btnReload.addEventListener('click', async () => {
+      // full refresh: schedule, students, then prefill
       CLASS_SCHEDULE = [];
       await loadLessons();
       await loadStudents();
+      await prefillSaved();
     });
     btnAllPresent.addEventListener('click', () => setStatusForAll('present'));
     btnAllAbsent.addEventListener('click', () => setStatusForAll('absent'));
@@ -317,15 +311,8 @@
       try {
         const payload = { "class": clazz.id, "date": dateVal, "subject": subjectId, "entries": entries };
         await api('/attendance/bulk-mark/', { method:'POST', body: JSON.stringify(payload) });
-
-        // Freeze rows to colored pills
-        Array.from(tbody.rows).forEach(tr => {
-          const sid = tr.querySelector('.stat-group')?.getAttribute('data-student');
-          const st = sid ? getStatusFor(Number(sid)) : 'present';
-          freezeRow(tr, st);
-        });
-
         alert('Davomat saqlandi ✅');
+        // no freeze; keep interactive so teacher can update
       } catch (e) {
         console.error(e);
         alert('Saqlashda xatolik ❌');

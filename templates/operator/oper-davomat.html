@@ -4,8 +4,23 @@
 <head>
   <meta charset="UTF-8">
   <title>School Operator — Davomat</title>
-  <!-- CSS -->
   <link rel="stylesheet" href="{% static 'css/parent-davomat-style.css' %}">
+  <style>
+    .card{background:#fff;border-radius:12px;box-shadow:0 3px 6px rgba(0,0,0,.08);padding:14px 16px;margin-bottom:14px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+    label{font-weight:600;display:block;margin-bottom:4px}
+    input[type="date"],select,input[type="text"]{border:1px solid #ddd;border-radius:8px;padding:8px 10px;min-width:160px}
+    .btn{padding:10px 14px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer}
+    .btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .btn.ghost{background:#fff}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{border:1px solid #eee;padding:8px}
+    .table th{background:#f7f7f7;text-align:left}
+    .muted{color:#6b7280}
+    .right{margin-left:auto}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#fff1f1;color:#981b1b}
+  </style>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -36,7 +51,6 @@
 
     <!-- Content -->
     <main class="content">
-      <!-- Topbar -->
       <div class="topbar">
         <input type="text" placeholder="Qidiruv">
         <div class="icons">
@@ -47,40 +61,87 @@
 
       <h2 class="page-title">Davomat</h2>
 
-      <!-- Guruh tanlash -->
-      <div class="filters">
-        <label for="class-select">Guruh:</label>
-        <select id="class-select">
-          <option value="">Sinf/Guruhni tanlang</option>
-        </select>
+      <!-- Mark attendance -->
+      <div class="card">
+        <h3>Joriy dars uchun davomat</h3>
+        <div class="row">
+          <div>
+            <label>Guruh / Sinf</label>
+            <select id="classSelect"><option value="">— tanlang —</option></select>
+          </div>
+          <div>
+            <label>Sana</label>
+            <input type="date" id="dateInp">
+          </div>
+          <div>
+            <label>Fan (shu kun)</label>
+            <!-- Filled from schedule by weekday; optional but recommended -->
+            <select id="subjectSelect">
+              <option value="">— tanlang —</option>
+            </select>
+          </div>
+          <button id="btnLoadClass" class="btn">Yuklash</button>
+
+          <div class="right" style="display:flex;gap:8px;">
+            <button id="btnAllPresent" class="btn ghost">Barchasi kelgan</button>
+            <button id="btnAllAbsent" class="btn ghost">Barchasi kelmagan</button>
+            <button id="btnSave" class="btn primary">Saqlash</button>
+          </div>
+        </div>
+
+        <div class="table-container" style="margin-top:10px;">
+          <table class="table" id="tblMark">
+            <thead>
+              <tr>
+                <th style="width:60px;">#</th>
+                <th>F.I.O</th>
+                <th style="width:140px;">Kelgan</th>
+              </tr>
+            </thead>
+            <tbody><!-- JS fills --></tbody>
+          </table>
+          <div class="muted" id="markInfo" style="margin-top:8px;"></div>
+        </div>
       </div>
 
-      <!-- Jadval -->
-      <div class="table-container">
-        <table id="attendance-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>F.I.O</th>
-              <th>Kelgan</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- JS orqali to‘ldiriladi -->
-          </tbody>
-        </table>
-      </div>
+      <!-- Absent list (school-wide) -->
+      <div class="card">
+        <h3>Kelmaganlar ro‘yxati</h3>
+        <div class="row">
+          <div>
+            <label>Sana</label>
+            <input type="date" id="absDate">
+          </div>
+          <div>
+            <label>Guruh/Sinf (ixtiyoriy)</label>
+            <select id="absClass"><option value="">— hammasi —</option></select>
+          </div>
+          <button id="btnLoadAbsent" class="btn">Yuklash</button>
+          <div class="right" style="display:flex;gap:8px;">
+            <button id="btnCSV" class="btn ghost">CSV</button>
+          </div>
+        </div>
 
-      <div class="save-box">
-        <button id="attendance-save" class="save-btn">Saqlash</button>
+        <div class="table-container" style="margin-top:10px;">
+          <table class="table" id="tblAbsent">
+            <thead>
+              <tr>
+                <th style="width:60px;">#</th>
+                <th>F.I.O</th>
+                <th>Sinf</th>
+                <th>Ota/ona telefon</th>
+                <th>Holat</th>
+              </tr>
+            </thead>
+            <tbody><!-- JS fills --></tbody>
+          </table>
+          <div class="muted" id="absInfo" style="margin-top:8px;">—</div>
+        </div>
       </div>
     </main>
   </div>
 
-  <!-- JS -->
-  <script>
-    window.API_BASE = '/api';
-  </script>
+  <script>window.API_BASE = '/api';</script>
   <script src="{% static 'js/oper-davomat.js' %}" defer></script>
 </body>
 </html>
