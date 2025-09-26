@@ -184,3 +184,29 @@ body {
   border-bottom: 1px solid; rgba(255,255,255,0.6);
   padding-bottom: 4px;
 }
+
+/* === Admin shell that doesn't fight Bootstrap === */
+.admin-shell { display:flex; height:100vh; }
+
+/* If someone keeps Bootstrap's .container on the wrapper, neutralize it */
+.admin-shell.container {
+  max-width: 100% !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Sidebar sizing identical everywhere */
+.sidebar {
+  flex: 0 0 250px;  /* same as admin dashboard */
+  width: 250px;     /* explicit width to avoid shrink */
+}
+
+/* Content area */
+.content {
+  flex: 1 1 auto;
+  min-width: 0;     /* prevents overflow when tables are wide */
+}
+
+/* Optional: make sure the page background matches your admin */
+body { background: #f7f8fa; }
+

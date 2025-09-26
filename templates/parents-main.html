@@ -9,48 +9,46 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Minimal layout tweaks now that the sidebar is gone */
+    body, html { background:#f4f6fb; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+    .content { padding: 16px 0 24px; }
+    .card { background:#fff; border:1px solid #eee; border-radius:14px; padding:16px; }
+    .topbar { display:flex; gap:12px; align-items:center; justify-content:space-between; margin:10px 0 16px; }
+    .topbar input { width: 360px; max-width: 60vw; height: 36px; border-radius: 999px; border:1px solid #ddd; padding:0 14px; }
+    .profile-section { display:flex; gap:16px; align-items:center; }
+    .profile-photo img { width:64px; height:64px; border-radius:50%; display:block; }
+    .profile-info h2 { margin:2px 0 4px; font-size:18px; }
+    .profile-info p { margin:2px 0; color:#555; }
+    .children-section { margin-top:18px; }
+  </style>
 </head>
 <body>
   <div class="container">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="logo">
-        <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
-      </div>
-      <h3 class="sidebar-title">School Ota Ona</h3>
-      <nav class="menu">
-        <a href="/otaona/" class="active"><img src="{% static 'icons/Asosiy-white.png' %}" alt="Asosiy"> Asosiy</a>
-        <a href="/otaona/davomat/"><img src="{% static 'icons/O‘quvchi.png' %}" alt="O‘quvchi"> Davomat</a>
-        <a href="/otaona/baholar/"><img src="{% static 'icons/O‘qituvchi.png' %}" alt="Baholar"> Baholar</a>
-        <a href="/otaona/sozlamalar/"><img src="{% static 'icons/sozlamalar.png' %}" alt="Sozlamalar"> Sozlamalar</a>
-      </nav>
-    </aside>
-
     <!-- Content -->
     <main class="content">
       <!-- Topbar -->
       <div class="topbar">
         <input type="text" placeholder="Qidiruv">
         <div class="icons">
-          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Xabarlar"></a>
-          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profil"></a>
+<!--          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Xabarlar"></a>-->
+<!--          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profil"></a>-->
         </div>
       </div>
 
-      <!-- Profile Section -->
+      <!-- Profile Section (only F.I.O and Telefon) -->
       <div class="profile-section card">
         <div class="profile-photo">
           <img src="{% static 'img/avatarprofile.png' %}" alt="User">
         </div>
         <div class="profile-info">
-          <h2>F.I.O: </h2>
+          <h2>F.I.O: —</h2>
           <p>Telefon: —</p>
-          <p>Email: —</p>
-          <p>Manzil: —</p>
         </div>
       </div>
 
-      <!-- Children section (JS will inject cards here) -->
+      <!-- Children section (JS injects cards here) -->
       <section id="children-section" class="children-section" aria-live="polite"></section>
     </main>
   </div>

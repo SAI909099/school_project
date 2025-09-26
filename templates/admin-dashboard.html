@@ -1,18 +1,31 @@
-{#{% extends 'base.html' %}#}
 {% load static %}
-{#{% block title %}Dreams School Admin{% endblock %}#}
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dreams School — Admin panel</title>
 
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/admin-style.css' %}">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
-{% endblock %}
+  <link rel="stylesheet" href="{% static 'css/admin-style.css' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-{% block content %}
-<div class="container">
+  <style>
+    /* Small helpers for charts + table */
+    .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+    .chart-box canvas { width: 100% !important; height: 280px !important; }
+    .card-table { background:#fff; padding:15px; border-radius:10px; box-shadow:0 3px 6px rgba(0,0,0,.1); }
+    .cls-table { width:100%; border-collapse:collapse; }
+    .cls-table th, .cls-table td { border:1px solid #eee; padding:10px; text-align:left; }
+    .cls-table th { background:#f7f7f7; }
+    @media (max-width: 1100px){ .charts { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
 
-  <!-- ЛЕВАЯ СТОРОНА: Sidebar -->
+<div class="container"><!-- Admin shell from admin-style.css -->
+
+  <!-- LEFT: Sidebar -->
   <aside class="sidebar">
     <div class="logo">
       <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
@@ -21,7 +34,7 @@
     <h3 class="sidebar-title">School Admin</h3>
 
     <nav class="menu">
-      <a href="#" class="active">
+      <a href="/dashboard/" class="active">
         <img src="{% static 'icons/Asosiy.png' %}" alt="Home">
         <span>Asosiy</span>
       </a>
@@ -33,89 +46,88 @@
         <img src="{% static 'icons/O‘qituvchi.png' %}" alt="O‘qituvchi">
         <span>O‘qituvchi</span>
       </a>
-      <a href="/jadval/">
+      <a href="/schedule/classes/">
         <img src="{% static 'icons/Jadval.png' %}" alt="Jadval">
         <span>Jadval</span>
       </a>
-      <a href="#">
+      <a href="/moliya/">
         <img src="{% static 'icons/Moliya.png' %}" alt="Moliya">
         <span>Moliya</span>
       </a>
-        <a href="/users/add/" ><img src="{% static 'icons/Asosiy.png' %}" alt=""> Qo‘shish</a>
-
-      <a href="#">
-        <img src="{% static 'icons/sozlamalar.png' %}" alt="Sozlamalar">
-        <span>Sozlamalar</span>
+      <a href="/users/add/">
+        <img src="{% static 'icons/Asosiy.png' %}" alt="">
+        <span>Qo‘shish</span>
       </a>
     </nav>
   </aside>
 
-  <!-- ПРАВАЯ СТОРОНА: Content -->
+  <!-- RIGHT: Content -->
   <main class="content">
-    <!-- Верхняя панель -->
+    <!-- Topbar -->
     <header class="topbar">
       <div class="search">
         <input type="text" placeholder="Qidiruv">
       </div>
-      <div class="top-icons">
-        <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell"></a>
-        <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile"></a>
-      </div>
+      <div class="top-icons"></div>
     </header>
 
-    <!-- Статистика карточки -->
+    <!-- KPI cards (dynamic) -->
     <section class="stats">
       <div class="card">
-        <p>Faol O‘quvchilar</p>
-        <h2>250</h2>
+        <p>Umumiy o‘quvchilar</p>
+        <h2 id="kpiStudents">—</h2>
       </div>
       <div class="card">
-        <p>Balans</p>
-        <h2>3.000.000</h2>
+        <p>Faol o‘quvchilar</p>
+        <h2 id="kpiActive">—</h2>
       </div>
       <div class="card">
-        <p>Tolov qilganlar soni</p>
-        <h2>200</h2>
+        <p>Sinf (guruh)lar soni</p>
+        <h2 id="kpiClasses">—</h2>
       </div>
       <div class="card">
-        <p>Qarzdorlar soni</p>
-        <h2>50</h2>
+        <p>O‘qituvchilar</p>
+        <h2 id="kpiTeachers">—</h2>
       </div>
     </section>
 
-    <!-- Графики -->
+    <!-- Charts -->
     <section class="charts">
-      <div class="chart-box">
-        <h3>Oylik foyda</h3>
-        <img src="" alt="Chart">
+      <div class="chart-box card">
+        <h3>Sinf bo‘yicha o‘quvchilar soni (Top 12)</h3>
+        <canvas id="clsBar"></canvas>
       </div>
-      <div class="chart-box">
-        <h3>Yangi o‘quvchilar</h3>
-        <img src="" alt="Chart">
+
+      <div class="chart-box card" id="regCard" style="display:none;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+          <h3 id="regTitle" style="margin:0;">Ro‘yxatdan o‘tganlar</h3>
+          <div style="margin-left:auto"></div>
+          <label for="regMode">Ko‘rsatish:</label>
+          <select id="regMode">
+            <option value="month">Oylik</option>
+            <option value="year">Yillik</option>
+          </select>
+          <label for="regYear" id="lblRegYear">Yil:</label>
+          <select id="regYear"></select>
+          <button id="btnRegReload" class="btn">Yangilash</button>
+        </div>
+        <canvas id="regLine"></canvas>
       </div>
     </section>
 
-    <!-- Доходы и расходы -->
-    <section class="tables">
-      <div class="table green">
-        <h3>Songi kirimlar</h3>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-      </div>
-      <div class="table red">
-        <h3>Songi chiqimlar</h3>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-        <p>Test.T .................................................................. 1.000.000 so‘m</p>
-      </div>
+    <!-- Classes table -->
+    <section class="card-table">
+      <h3>Barcha sinflar</h3>
+      <table class="cls-table" id="tblClasses">
+        <thead><tr><th>#</th><th>Sinf</th><th>O‘quvchilar soni</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </section>
   </main>
 </div>
-{% endblock %}
 
-{% block extra_js %}
-{# Add admin.js if needed: <script src="{% static 'js/admin.js' %}"></script> #}
-{% endblock %}
+<script>window.API_BASE='/api';</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{% static 'js/admin-dashboard.js' %}" defer></script>
+</body>
+</html>

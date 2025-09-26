@@ -1,5 +1,4 @@
 {% load static %}
-
 <!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -11,42 +10,44 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <style>
-    /* tiny helpers for the history table */
+    /* Page layout without sidebar */
+    body, html { background:#f4f6fb; }
+    .container { max-width:1200px; margin:0 auto; padding:0 16px; }
+    .content { padding:16px 0 24px; }
+    .topbar { display:flex; gap:12px; align-items:center; justify-content:space-between; margin:10px 0 16px; }
+    .topbar input { width:360px; max-width:60vw; height:36px; border-radius:999px; border:1px solid #ddd; padding:0 14px; }
+
+    /* Cards + badges */
+    .card { background:#fff; border:1px solid #eee; border-radius:14px; padding:16px; }
+    .cards-grid { display:grid; gap:12px; }
+    .badge { display:inline-block; padding:6px 10px; border-radius:999px; background:#f2f4ff; color:#4b57e4; font-weight:600; }
+
+    /* History table inside details */
     details.hist { margin-top: 8px; }
-    details.hist > summary { cursor: pointer; user-select: none; color: #5b6bff; }
-    table.mini { width: 100%; border-collapse: collapse; margin-top: 6px; }
-    table.mini th, table.mini td { padding: 6px 8px; border: 1px solid #e9e9ee; font-size: 14px; }
-    table.mini th { background: #f7f8ff; text-align: left; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f2f2f7; font-size:12px; }
+    details.hist > summary { cursor:pointer; user-select:none; color:#5b6bff; }
+    table { width:100%; border-collapse:collapse; }
+    table th, table td { padding:8px 10px; border:1px solid #e9e9ee; text-align:left; }
+    table thead th { background:#f7f8ff; }
+    table.mini { margin-top:6px; }
+    table.mini th, table.mini td { font-size:14px; }
+    .btn { padding:8px 12px; border-radius:8px; border:1px solid #ddd; background:#f7f7f7; }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="logo">
-        <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
-      </div>
-      <h3 class="sidebar-title">School Ota Ona</h3>
-      <nav class="menu">
-        <a href="/otaona/"><img src="{% static 'icons/Asosiy-white.png' %}" alt="Asosiy"> Asosiy</a>
-        <a href="/otaona/davomat/"><img src="{% static 'icons/O‘quvchi.png' %}" alt="O‘quvchi"> Davomat</a>
-        <a class="active" href="/otaona/baholar/"><img src="{% static 'icons/O‘qituvchi.png' %}" alt=""> Baholar</a>
-        <a href="/otaona/sozlamalar/"><img src="{% static 'icons/sozlamalar.png' %}" alt=""> Sozlamalar</a>
-      </nav>
-    </aside>
-
-    <!-- Content -->
     <main class="content">
       <div class="topbar">
         <input type="text" placeholder="Qidiruv">
         <div class="icons">
-          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Xabarlar"></a>
-          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profil"></a>
+          <a href="/otaona/"><img src="{% static 'icons/Asosiy.png' %}" alt="Asosiy"></a>
+<!--          <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Xabarlar"></a>-->
+<!--          <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profil"></a>-->
         </div>
       </div>
 
+      <!-- JS injects the child selector + badges above this grid -->
       <div class="cards-grid">
         <div class="card">Ma’lumotlar yuklanmoqda…</div>
       </div>

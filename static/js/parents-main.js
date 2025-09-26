@@ -1,4 +1,4 @@
-/* static/js/parents-main.js — current-week only */
+/* static/js/parents-main.js — simplified main page (no sidebar, no GPA/rank) */
 (function () {
   const API = (window.API_BASE || '/api').replace(/\/+$/, '');
   const access = localStorage.getItem('access');
@@ -34,7 +34,7 @@
     ].join(';');
   }
 
-  // ---------- inject minimal styles (NON-clipping) ----------
+  // ---------- inject minimal styles for the weekly grid ----------
   (function injectStyles(){
     const css = `
     .child-card{padding:14px;border:1px solid #eee;border-radius:12px;background:#fff}
@@ -46,7 +46,6 @@
     .status-late{background:#fff4e5;color:#a15e00;border-color:#f8d7a6}
     .status-excused{background:#e8f1ff;color:#1a4fbf;border-color:#b9d1ff}
 
-    /* allow horizontal scroll when 6 cols don't fit */
     .grid-wrap{margin-top:10px;border:1px solid #eee;border-radius:12px;overflow-x:auto;overflow-y:hidden;background:#fff}
     .grid-head,.grid-body{display:grid;grid-template-columns:repeat(6, minmax(160px,1fr));gap:0;min-width:960px}
     .grid-head{background:#fafafa;border-bottom:1px solid #eee}
@@ -58,7 +57,6 @@
     .lesson:last-child{border-bottom:none}
     .lesson .time{font-size:12px;color:#555}
     .lesson .subj{font-weight:600}
-    /* Center the "no class" message */
     .lesson.muted{color:#777;display:flex;align-items:center;justify-content:center;text-align:center}
     .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#555}
     .legend .item{display:flex;align-items:center;gap:6px}
@@ -71,12 +69,10 @@
     }
   })();
 
-  // ---------- profile fill ----------
-  function fillProfile(me, firstChild) {
+  // ---------- profile fill (ONLY FIO + Telefon) ----------
+  function fillProfile(me) {
     const fioEl = $('.profile-info h2');
     const phoneEl = $('.profile-info p:nth-of-type(1)');
-    const emailEl = $('.profile-info p:nth-of-type(2)');
-    const addrEl = $('.profile-info p:nth-of-type(3)');
 
     const first = (me?.first_name || '').trim();
     const last  = (me?.last_name  || '').trim();
@@ -84,10 +80,6 @@
 
     if (fioEl)   fioEl.textContent = 'F.I.O: ' + fio;
     if (phoneEl) phoneEl.textContent = 'Telefon: ' + ((me?.phone || '').trim() || '—');
-    if (emailEl) emailEl.textContent = 'Email: ' + ((me?.email || '').trim() || '—');
-
-    const addr = (me?.address || '').trim() || (firstChild?.address || '').trim();
-    if (addrEl) addrEl.textContent = 'Manzil: ' + (addr || '—');
   }
 
   // ---------- week helpers ----------
@@ -105,12 +97,11 @@
     return el('span', { class: cls, title: label }, label);
   }
 
-  // (dateISO, subjectId) -> status
   function buildAttendanceMap(list){
     const map = new Map();
     (list||[]).forEach(a=>{
       const date = String(a?.date||'');
-      const subj = a?.subject ?? null; // may be null if daily-only
+      const subj = a?.subject ?? null;
       map.set(`${date}::${subj ?? 'none'}`, String(a.status || ''));
     });
     return map;
@@ -119,11 +110,8 @@
   // ---------- weekly grid (current week only) ----------
   function renderWeeklyGrid(container, timetable, attendanceList){
     const attMap = buildAttendanceMap(attendanceList);
+    const mon = mondayOf(new Date());
 
-    const theToday = new Date(); // <-- fixed scoping
-    const mon = mondayOf(theToday);
-
-    // group timetable by weekday (1..6)
     const byDay = {1:[],2:[],3:[],4:[],5:[],6:[]};
     (timetable||[]).forEach(t=>{
       if (t.weekday>=1 && t.weekday<=6) byDay[t.weekday].push(t);
@@ -134,7 +122,7 @@
     const body = el('div', { class:'grid-body' });
 
     for (let i=0;i<6;i++){
-      const wd = i+1; // 1..6
+      const wd = i+1;
       const d = addDays(mon, i);
       const iso = toISO(d);
 
@@ -144,21 +132,19 @@
       const slots = byDay[wd];
 
       if (!slots.length){
-        const empty = el('div', { class:'lesson muted' },
-          el('div', { class:'subj' }, 'Bu kunda dars yo‘q')
-        );
-        col.append(empty);
+        col.append(el('div', { class:'lesson muted' }, 'Bu kunda dars yo‘q'));
       } else {
         slots.forEach(s=>{
           const time = `${(s.start_time||'').slice(0,5)}–${(s.end_time||'').slice(0,5)}`.replace(/^–$/,'');
           const subj = s.subject_name || 'Fan';
-          const st   = attMap.get(`${iso}::${s.subject}`) || null; // null = no record
-          const row  = el('div', { class:'lesson' },
-            el('div', { class:'time' }, time || '—'),
-            el('div', { class:'subj' }, subj),
-            statusPill(st)
+          const st   = attMap.get(`${iso}::${s.subject}`) || null;
+          col.append(
+            el('div', { class:'lesson' },
+              el('div', { class:'time' }, time || '—'),
+              el('div', { class:'subj' }, subj),
+              statusPill(st)
+            )
           );
-          col.append(row);
         });
       }
       body.append(col);
@@ -184,9 +170,8 @@
 
   // ---------- child card ----------
   async function renderChildOverview(container, child){
-    container.innerHTML = ''; // ensure fresh build each time
+    container.innerHTML = '';
 
-    // No week param → backend should return current week by default
     let ov=null;
     try { ov = await api(`/parent/child/${child.id}/overview/`); }
     catch(e){ console.error('overview fail', e); }
@@ -195,11 +180,11 @@
     const clsName = (ov?.class_name || child.class_name || child.clazz || '—');
     const header = el('div', { style:'font-weight:600;margin-bottom:6px;' }, full || 'F.I.O');
 
+    // ONLY class info (no GPA, no Rank)
     const meta = el('div', { class:'meta-row' });
     meta.append(el('span', {}, 'Sinf: ' + clsName));
-    if (ov?.gpa_overall != null) meta.append(el('span', {}, `GPA: ${Number(ov.gpa_overall).toFixed(2)}`));
-    if (ov?.class_rank != null && ov?.class_size != null) meta.append(el('span', {}, `O‘rin: ${ov.class_rank}/${ov.class_size}`));
 
+    // Keep action buttons (so navigation still works without sidebar)
     const actions = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;' },
       (() => {
         const b = el('a', { href: '/otaona/davomat/', class: 'btn', style: btnStyle() }, 'Davomat');
@@ -232,7 +217,7 @@
     }
     section.querySelectorAll('.child-list')?.forEach(n => n.remove());
 
-    const list = el('div', { class: 'child-list', style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;' });
+    const list = el('div', { class: 'child-list', style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:12px;' });
     if (!children || children.length === 0) {
       list.append(el('div', { class: 'child-card' }, 'Bolalar ro‘yxati bo‘sh.'));
       section.appendChild(list);
@@ -260,7 +245,7 @@
       }
 
       const children = await api('/parent/children/');
-      fillProfile(me, children?.[0] || null);
+      fillProfile(me);
       await renderChildren(Array.isArray(children) ? children : []);
     } catch (e) {
       console.error(e);

@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="uz">
 <head>
@@ -5,70 +6,131 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Operator — Ota-onalar ro‘yxati</title>
 
-  <!-- Bootstrap -->
+  <!-- Bootstrap first -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
 
+  <!-- Your admin shell styles (sidebar, layout, colors) -->
+  <link rel="stylesheet" href="{% static 'css/admin-style.css' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <style>
+    /* Make the admin shell expand full width even with Bootstrap loaded */
+    .admin-shell.container { max-width: 100% !important; }
+
+    /* Page-specific tweaks that live nicely inside the admin shell */
     body { background:#f7f8fa; }
     .page-title { font-weight:600; }
     .table thead th { white-space: nowrap; }
     .badge-class { font-size:.75rem; }
     .parent-card { background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.05); padding:18px; }
+    .content .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .content .topbar .search input { height:36px; border-radius:999px; border:1px solid #ddd; padding:0 14px; width:320px; max-width:60vw; }
   </style>
-
-  <!-- (Optional) You can set a custom API base -->
-  <script>
-    // window.API_BASE = "/api";
-  </script>
 </head>
 <body>
 
-  <div class="container py-4">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <h1 class="page-title h3 mb-0">👨‍👩‍👧‍👦 Ota-onalar</h1>
-      <a href="/operator/" class="btn btn-outline-secondary btn-sm">← Orqaga</a>
-    </div>
+  <div class="admin-shell">
+    <!-- LEFT: Sidebar -->
+    <aside class="sidebar">
+        <div class="logo">
+          <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
+        </div>
 
-    <div class="parent-card mb-3">
-      <div class="row g-2 align-items-end">
-        <div class="col-12 col-md-5">
-          <label for="search" class="form-label mb-1">Qidirish (ism, familiya, telefon, sinf)</label>
-          <input id="search" type="text" class="form-control" placeholder="Masalan: Aliyev, 6-A, +998..." />
+        <h3 class="sidebar-title">School Admin</h3>
+
+        <nav class="menu">
+          <a href="/dashboard/" >
+            <img src="{% static 'icons/Asosiy.png' %}" alt="Home">
+            <span>Asosiy</span>
+          </a>
+          <a href="/operator/parents/" class="active" >
+            <img src="{% static 'icons/O‘quvchi.png' %}" alt="O'quvchi">
+            <span>O‘quvchi</span>
+          </a>
+          <a href="/operator/teachers/" >
+            <img src="{% static 'icons/O‘qituvchi.png' %}" alt="O‘qituvchi">
+            <span>O‘qituvchi</span>
+          </a>
+          <a href="/schedule/classes/">
+            <img src="{% static 'icons/Jadval.png' %}" alt="Jadval">
+            <span>Jadval</span>
+          </a>
+          <a href="/moliya/">
+            <img src="{% static 'icons/Moliya.png' %}" alt="Moliya">
+            <span>Moliya</span>
+          </a>
+            <a href="/users/add/" ><img src="{% static 'icons/Asosiy.png' %}" alt=""> Qo‘shish</a>
+
+    <!--      <a href="#">-->
+    <!--        <img src="{% static 'icons/sozlamalar.png' %}" alt="Sozlamalar">-->
+    <!--        <span>Sozlamalar</span>-->
+    <!--      </a>-->
+        </nav>
+      </aside>
+
+    <!-- RIGHT: Content -->
+    <main class="content">
+      <!-- Top bar (optional) -->
+      <header class="topbar mb-3">
+        <div class="search">
+          <input type="text" placeholder="Qidiruv">
         </div>
-        <div class="col-12 col-md-4">
-          <label for="class-filter" class="form-label mb-1">Sinf bo‘yicha filtr</label>
-          <select id="class-filter" class="form-select">
-            <option value="">Barchasi</option>
-            <!-- JS to‘ldiradi -->
-          </select>
+        <div class="top-icons">
+          <!-- icons if you need -->
         </div>
-        <div class="col-12 col-md-3 text-md-end">
-          <button id="btn-refresh" class="btn btn-primary mt-2 mt-md-0">Yangilash</button>
+      </header>
+
+      <!-- Page body wrapped in Bootstrap for comfy spacing -->
+      <div class="page container-fluid py-3">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h1 class="page-title h3 mb-0">👨‍👩‍👧‍👦 Ota-onalar</h1>
+          <!-- Back button removed; sidebar provides navigation -->
+        </div>
+
+        <div class="parent-card mb-3">
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+              <label for="search" class="form-label mb-1">Qidirish (ism, familiya, telefon, sinf)</label>
+              <input id="search" type="text" class="form-control" placeholder="Masalan: Aliyev, 1-A, +998..." />
+            </div>
+            <div class="col-12 col-md-4">
+              <label for="class-filter" class="form-label mb-1">Sinf bo‘yicha filtr</label>
+              <select id="class-filter" class="form-select">
+                <option value="">Barchasi</option>
+                <!-- JS to‘ldiradi -->
+              </select>
+            </div>
+            <div class="col-12 col-md-3 text-md-end">
+              <button id="btn-refresh" class="btn btn-primary mt-2 mt-md-0">Yangilash</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="parent-card">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th style="min-width:200px">Ota-ona</th>
+                  <th>Telefon</th>
+                  <th style="min-width:260px">Farzandlari (Ism Familiya — Sinf)</th>
+                  <th style="min-width:160px">Amal</th>
+                </tr>
+              </thead>
+              <tbody id="parents-tbody">
+                <!-- JS to‘ldiradi -->
+              </tbody>
+            </table>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center mt-2">
+            <div id="list-meta" class="text-muted small">—</div>
+          </div>
         </div>
       </div>
-    </div>
-
-    <div class="parent-card">
-      <div class="table-responsive">
-        <table class="table table-hover align-middle">
-          <thead class="table-light">
-            <tr>
-              <th style="min-width:200px">Ota-ona</th>
-              <th>Telefon</th>
-              <th style="min-width:260px">Farzandlari (Ism Familiya — Sinf)</th>
-              <th style="min-width:160px">Amal</th>
-            </tr>
-          </thead>
-          <tbody id="parents-tbody">
-            <!-- JS to‘ldiradi -->
-          </tbody>
-        </table>
-      </div>
-
-      <div class="d-flex justify-content-between align-items-center mt-2">
-        <div id="list-meta" class="text-muted small">—</div>
-      </div>
-    </div>
+    </main>
   </div>
 
   <!-- Password modal -->

@@ -81,6 +81,9 @@
         const name = (k.full_name || `${k.first_name||''} ${k.last_name||''}`).trim() || `#${k.id}`;
         childSel.append(el('option', {value:k.id}, name));
       });
+      // Remember selection from main page if set
+      const saved = localStorage.getItem('parent_current_child');
+      if (saved && kids.some(x=>String(x.id)===String(saved))) return +saved;
       return kids[0].id;
     }catch(e){
       childSel.innerHTML = '';
@@ -90,8 +93,8 @@
     }
   }
 
+  // subject/teacher maps from timetable
   function buildSubjectMaps(timetable){
-    // subjectId -> name, and subjectId -> teacher
     const nameMap = new Map();
     const teacherMap = new Map();
     (timetable||[]).forEach(row=>{
@@ -103,6 +106,7 @@
     return {nameMap, teacherMap};
   }
 
+  // group raw grades by subject (only for selected student)
   function groupGradesBySubject(grades, studentId){
     const out = new Map(); // subjectId -> [{date,type,score}]
     (grades||[])
@@ -111,7 +115,6 @@
         if(!out.has(g.subject)) out.set(g.subject, []);
         out.get(g.subject).push({date: g.date, type: g.type, score: Number(g.score)});
       });
-    // sort each subject's grades by date ascending
     for (const arr of out.values()){
       arr.sort((a,b)=> (a.date< b.date? -1 : a.date> b.date? 1 : 0) );
     }
@@ -184,7 +187,7 @@
         )),
         el('tbody', {},
           ...items.map(row=>{
-            // history table (collapse)
+            // history table (toggle)
             const historyTable = el('table', {class:'mini'},
               el('thead', {}, el('tr', {},
                 el('th', {}, 'Sana'),
@@ -194,7 +197,7 @@
               el('tbody', {},
                 ...(row.history.length
                   ? row.history.map(h=>el('tr', {},
-                      el('td', {}, h.date),              // server returns ISO date; keep simple
+                      el('td', {}, h.date),
                       el('td', {}, typeName(h.type)),
                       el('td', {}, fmt(h.score))
                     ))
@@ -231,13 +234,10 @@
     if(!studentId){ return; }
     cardsGrid.innerHTML = '<div class="card">Yuklanmoqda...</div>';
     try{
-      // 1) overview (timetable, class, etc)
-      // 2) raw grades list; server already scopes to parent’s children
       const [overview, allGrades] = await Promise.all([
         apiGET(`/parent/child/${studentId}/overview/`),
         apiGET(`/grades/?student=${studentId}`)
       ]);
-      // some backends paginate; if you use DRF pagination later, you may need to fetch next pages.
       renderOverview(overview, Array.isArray(allGrades) ? allGrades : (allGrades.results || []));
     }catch(e){
       cardsGrid.innerHTML = `<div class="card err">Xatolik: ${e.message}</div>`;
