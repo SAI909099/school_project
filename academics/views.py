@@ -1,12 +1,13 @@
 # academics/views.py
+import traceback
 from collections import defaultdict
 from datetime import date, timedelta
-import re
-import secrets
 
 from django.contrib.auth import get_user_model
-from django.db.models import Avg, Count, Q
-from rest_framework import viewsets, permissions, status
+from django.db import models
+from django.db.models import Count, Q, Min
+from django.db.models.functions import TruncMonth
+from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,15 +27,69 @@ from .serializers import (
 User = get_user_model()
 
 # =========================
-# Helpers (GPA)
+# Helpers (AVERAGE system)
 # =========================
 
-def _active_scale():
-    return GradeScale.objects.filter(active=True).first() or GradeScale.objects.create()
+def _subjects_for_class(class_id: int) -> list[int]:
+    """
+    Distinct subject IDs taught to the class (based on schedule).
+    Falls back to all Subjects if the class has no schedule yet.
+    """
+    if not class_id:
+        return list(Subject.objects.values_list('id', flat=True))
+    ids = (ScheduleEntry.objects
+           .filter(clazz_id=class_id)
+           .values_list('subject_id', flat=True)
+           .distinct())
+    ids = list(ids)
+    if not ids:
+        ids = list(Subject.objects.values_list('id', flat=True))
+    return ids
 
 
-def _active_weights():
-    return GPAConfig.objects.filter(active=True).first() or GPAConfig.objects.create()
+def _subject_breakdown(student_id: int, subject_id: int, term: str | None = None):
+    """
+    Returns (exam_avg, final_avg, subject_avg) for one student/subject.
+    subject_avg is a simple mean of ALL available exam+final scores,
+    with the convention: if there is a FINAL, it naturally contributes to the mean.
+    """
+    qs = Grade.objects.filter(student_id=student_id, subject_id=subject_id)
+    if term:
+        qs = qs.filter(term=term)
+
+    exams  = list(qs.filter(type='exam').values_list('score', flat=True))
+    finals = list(qs.filter(type='final').values_list('score', flat=True))
+
+    def avg(arr):
+        return round(sum(arr) / len(arr), 2) if arr else None
+
+    exam_avg  = avg(exams)
+    final_avg = avg(finals)
+    all_scores = exams + finals
+    subject_avg = avg(all_scores)
+    return exam_avg, final_avg, subject_avg
+
+
+def _subject_score_for_student(student_id: int, subject_id: int, term: str | None = None):
+    """
+    Representative single score for a subject used in overall average:
+    - Latest FINAL score if available
+    - Else average of EXAM scores
+    - Else None
+    """
+    qs = Grade.objects.filter(student_id=student_id, subject_id=subject_id)
+    if term:
+        qs = qs.filter(term=term)
+
+    final = qs.filter(type='final').order_by('-date', '-id').first()
+    if final and final.score is not None:
+        return float(final.score)
+
+    exam_scores = list(qs.filter(type='exam').values_list('score', flat=True))
+    if exam_scores:
+        return float(sum(exam_scores) / len(exam_scores))
+
+    return None
 
 
 # =========================
@@ -52,10 +107,55 @@ class TeacherViewSet(viewsets.ModelViewSet):
     serializer_class = TeacherSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
 
+    # ---- Directory (safe: only admin/registrar/operator) ----
+    @action(detail=False, methods=['get'], url_path='directory',
+            permission_classes=[permissions.IsAuthenticated])
+    def directory(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'registrar', 'operator'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        qs = Teacher.objects.select_related('user').all().order_by('user__last_name', 'user__first_name')
+        rows = []
+        for t in qs:
+            u = t.user
+            rows.append({
+                'id': t.id,
+                'user_id': getattr(u, 'id', None),
+                'first_name': (getattr(u, 'first_name', '') or getattr(t, 'first_name', '')).strip(),
+                'last_name':  (getattr(u, 'last_name', '')  or getattr(t, 'last_name', '')).strip(),
+                'phone': getattr(u, 'phone', '') or getattr(u, 'username', ''),
+            })
+        return Response(rows)
+
+    # ---- Set password (safe: only admin/registrar/operator) ----
+    @action(detail=True, methods=['post'], url_path='set-password',
+            permission_classes=[permissions.IsAuthenticated])
+    def set_password(self, request, pk=None):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'registrar', 'operator'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        pw = (request.data.get('password') or '').strip()
+        if len(pw) < 6:
+            return Response({'detail': 'Parol uzunligi kamida 6 belgi bo‘lishi kerak'}, status=400)
+
+        try:
+            teacher = Teacher.objects.select_related('user').get(pk=pk)
+        except Teacher.DoesNotExist:
+            return Response({'detail': 'Teacher not found'}, status=404)
+
+        if not teacher.user:
+            return Response({'detail': 'User account missing for this teacher'}, status=400)
+
+        teacher.user.set_password(pw)
+        teacher.user.save()
+        return Response({'ok': True})
+
 
 class SchoolClassViewSet(viewsets.ModelViewSet):
     """
-    Full CRUD for classes + rich class actions (attendance/gradebooks/gpa).
+    Full CRUD for classes + rich class actions (attendance/gradebooks/averages).
     """
     queryset = (SchoolClass.objects
                 .select_related('class_teacher')
@@ -96,29 +196,6 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
         days = [(start + timedelta(days=i)).isoformat() for i in range(6)]
         return Response({'students': students, 'days': days, 'grid': grid})
 
-    # ---- Daily gradebook (Mon..Sat average) ----
-    @action(detail=True, methods=['get'])
-    def gradebook_daily(self, request, pk=None):
-        d = request.query_params.get('week_of')
-        anchor = date.fromisoformat(d) if d else date.today()
-        start, end = self._week_range(anchor)
-
-        students = list(
-            Student.objects.filter(clazz_id=pk)
-            .order_by('last_name', 'first_name')
-            .values('id', 'first_name', 'last_name')
-        )
-        grades = Grade.objects.filter(student__clazz_id=pk, type='daily', date__range=(start, end))
-        grid = defaultdict(lambda: defaultdict(list))  # student -> day -> [scores]
-        for g in grades:
-            grid[g.student_id][g.date.isoformat()].append(g.score)
-        days = [(start + timedelta(days=i)).isoformat() for i in range(6)]
-        grid_avg = {
-            sid: {day: (sum(vals) / len(vals) if vals else None) for day, vals in daymap.items()}
-            for sid, daymap in grid.items()
-        }
-        return Response({'students': students, 'days': days, 'grid': grid_avg})
-
     # ---- Exam gradebook ----
     @action(detail=True, methods=['get'])
     def gradebook_exams(self, request, pk=None):
@@ -143,48 +220,39 @@ class SchoolClassViewSet(viewsets.ModelViewSet):
             data[g.student_id].append({'subject': g.subject_id, 'date': g.date, 'score': g.score})
         return Response(data)
 
-    # ---- GPA ranking for a class ----
+    # ---- Average ranking for a class ----
     @action(detail=True, methods=['get'])
-    def gpa_ranking(self, request, pk=None):
-        term = request.query_params.get('term', '')
-        scale = _active_scale()
-        weights = _active_weights()
-        students = Student.objects.filter(clazz_id=pk)
-        result = []
+    def average_ranking(self, request, pk=None):
+        """
+        GET /api/classes/{id}/average_ranking/?term=2025-1 (optional)
+        Ranking by simple arithmetic average across the class's subjects.
+        Subject score = latest FINAL else average of EXAMs.
+        """
+        term = request.query_params.get('term') or None
 
-        subj_ids = list(Subject.objects.values_list('id', flat=True))
+        students = Student.objects.filter(clazz_id=pk).order_by('last_name', 'first_name')
+        subject_ids = _subjects_for_class(pk)
+
+        ranking = []
         for s in students:
-            subj_gpas = []
-            for sub in subj_ids:
-                q = Q(student=s, subject_id=sub)
-                if term:
-                    q &= Q(term=term)
-                g_daily = Grade.objects.filter(q & Q(type='daily')).aggregate(avg=Avg('score'))['avg']
-                g_exam = Grade.objects.filter(q & Q(type='exam')).aggregate(avg=Avg('score'))['avg']
-                g_final = Grade.objects.filter(q & Q(type='final')).aggregate(avg=Avg('score'))['avg']
+            scores = []
+            for sid in subject_ids:
+                sc = _subject_score_for_student(s.id, sid, term=term)
+                if sc is not None:
+                    scores.append(sc)
+            avg = (sum(scores) / len(scores)) if scores else 0.0
+            ranking.append({
+                'student_id': s.id,
+                'name': f"{s.last_name} {s.first_name}",
+                'avg': round(avg, 2),
+                'count_subjects': len(scores)
+            })
 
-                def gp(x):
-                    if not x:
-                        return None
-                    return float(scale.point_for(round(x)))
+        ranking.sort(key=lambda x: x['avg'], reverse=True)
+        for i, row in enumerate(ranking, start=1):
+            row['rank'] = i
 
-                parts = [
-                    (gp(g_daily), float(weights.weight_daily)),
-                    (gp(g_exam), float(weights.weight_exam)),
-                    (gp(g_final), float(weights.weight_final)),
-                ]
-                if any(p[0] is not None for p in parts):
-                    total = sum((p * w for p, w in parts if p is not None))
-                    wsum = sum((w for p, w in parts if p is not None))
-                    subj_gpas.append(total / wsum if wsum else 0)
-            overall = sum(subj_gpas) / len(subj_gpas) if subj_gpas else 0.0
-            result.append({'student_id': s.id,
-                           'name': f"{s.last_name} {s.first_name}",
-                           'gpa': round(overall, 2)})
-        result.sort(key=lambda x: x['gpa'], reverse=True)
-        for idx, r in enumerate(result, start=1):
-            r['rank'] = idx
-        return Response({'class_id': pk, 'ranking': result})
+        return Response({'class_id': pk, 'ranking': ranking})
 
 
 class StudentViewSet(viewsets.ModelViewSet):
@@ -258,9 +326,9 @@ class ScheduleEntryViewSet(viewsets.ModelViewSet):
         return qs.order_by('weekday', 'start_time')
 
 
-# academics/views.py (replace the whole class)
-
-
+# =========================
+# Attendance
+# =========================
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     """
@@ -413,7 +481,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         data = qs.values('student_id', 'status', 'note')
         return Response(list(data))
 
-    # ---- "Kelmaganlar" list (plain array; compatible with current JS) ----
+    # ---- "Kelmaganlar" list (DB-agnostic, 1 row per student) ----
     @action(detail=False, methods=['get'], url_path='absent')
     def absent(self, request):
         """
@@ -431,15 +499,20 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
         class_id = request.query_params.get('class')
 
-        qs = self.get_queryset().filter(date=date_str, status='absent')
+        base_qs = self.get_queryset().filter(date=date_str, status='absent')
         if class_id:
-            qs = qs.filter(clazz_id=class_id)
+            base_qs = base_qs.filter(clazz_id=class_id)
 
-        # PostgreSQL distinct-on to keep one row per student
-        qs = qs.order_by('student_id', 'id').distinct('student_id')
+        # Cross-DB safe "distinct student" selection:
+        # pick the smallest Attendance.id per student for that day
+        ids_qs = (base_qs.values('student_id')
+                         .annotate(first_id=Min('id'))
+                         .values_list('first_id', flat=True))
+
+        qs = Attendance.objects.filter(id__in=ids_qs).select_related('student', 'clazz')
 
         rows = []
-        for a in qs.select_related('student', 'clazz'):
+        for a in qs:
             s = a.student
             full_name = (
                 f"{getattr(s, 'last_name', '')} {getattr(s, 'first_name', '')}".strip()
@@ -454,6 +527,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 'parent_phone': getattr(s, 'parent_phone', '') or '',
             })
         return Response(rows)
+
 
 class GradeViewSet(viewsets.ModelViewSet):
     queryset = Grade.objects.select_related('student', 'subject', 'teacher').all()
@@ -481,27 +555,33 @@ class GradeViewSet(viewsets.ModelViewSet):
         Payload:
         {
           "class": id, "date":"YYYY-MM-DD", "subject": id,
-          "type":"daily|exam|final", "term":"2025-1",
+          "type":"exam|final", "term":"2025-1",
           "entries":[{"student":id, "score":2..5, "comment":""}]
         }
         """
         u = request.user
         if getattr(u, 'role', None) not in ('admin', 'teacher'):
             return Response({'detail': 'Forbidden'}, status=403)
+
         data = request.data
+        gtype = (data.get('type') or '').strip()
+        if gtype not in ('exam', 'final'):
+            return Response({'detail': 'type must be "exam" or "final"'}, status=400)
+
         t = None
         if getattr(u, 'role', None) == 'teacher':
             try:
                 t = u.teacher_profile
             except Teacher.DoesNotExist:
                 pass
+
         ids = []
         for e in data.get('entries', []):
             obj, _ = Grade.objects.update_or_create(
                 student_id=e['student'],
                 subject_id=data['subject'],
                 date=data['date'],
-                type=data['type'],
+                type=gtype,
                 defaults={
                     'score': e['score'],
                     'comment': e.get('comment', ''),
@@ -516,7 +596,7 @@ class GradeViewSet(viewsets.ModelViewSet):
     def by_class(self, request):
         """
         Read-only filter:
-        GET /api/grades/by-class/?class=<id>&subject=<id>&type=daily|exam|final&date=YYYY-MM-DD&term=2025-1
+        GET /api/grades/by-class/?class=<id>&subject=<id>&type=exam|final&date=YYYY-MM-DD&term=2025-1
         Returns: list of grades for the class that match the filters.
         Role rules are applied (teacher sees own domain, parent sees own kids, etc).
         """
@@ -532,6 +612,8 @@ class GradeViewSet(viewsets.ModelViewSet):
         if subject:
             qs = qs.filter(subject_id=subject)
         if gtype:
+            if gtype not in ('exam', 'final'):
+                return Response({'detail': 'type must be "exam" or "final"'}, status=400)
             qs = qs.filter(type=gtype)
         if dt:
             qs = qs.filter(date=dt)
@@ -594,72 +676,84 @@ class ParentViewSet(viewsets.ViewSet):
         end = start + timedelta(days=5)
         latest_att = Attendance.objects.filter(student=s, date__range=(start, end))
 
-        # grades summary per subject
-        scale = _active_scale()
-        weights = _active_weights()
-        summary = {}
-        for sub in Subject.objects.all():
-            g_daily = Grade.objects.filter(student=s, subject=sub, type='daily').aggregate(avg=Avg('score'))['avg']
-            g_exam = Grade.objects.filter(student=s, subject=sub, type='exam').aggregate(avg=Avg('score'))['avg']
-            g_final = Grade.objects.filter(student=s, subject=sub, type='final').aggregate(avg=Avg('score'))['avg']
+        # ---- Average-based summary (no legacy GPA) ----
+        subject_ids = _subjects_for_class(s.clazz_id) if s.clazz_id else list(Subject.objects.values_list('id', flat=True))
+        names = {sub.id: sub.name for sub in Subject.objects.filter(id__in=subject_ids)}
 
-            def gp(x):
-                return float(scale.point_for(round(x))) if x else None
+        grades_summary = {}   # for the current JS
+        subject_scores = {}   # simpler mapping (optional)
+        scores_for_overall = []
 
-            parts = [
-                (gp(g_daily), float(weights.weight_daily)),
-                (gp(g_exam), float(weights.weight_exam)),
-                (gp(g_final), float(weights.weight_final)),
-            ]
-            if any(p[0] is not None for p in parts):
-                total = sum((p * w for p, w in parts if p is not None))
-                wsum = sum((w for p, w in parts if p is not None))
-                subject_gpa = total / wsum if wsum else 0
-                summary[sub.name] = {
-                    'daily_avg': round(g_daily, 2) if g_daily else None,
-                    'exam_avg': round(g_exam, 2) if g_exam else None,
-                    'final_avg': round(g_final, 2) if g_final else None,
-                    'gpa_subject': round(subject_gpa, 2),
+        for sid in subject_ids:
+            exam_avg, final_avg, subject_avg = _subject_breakdown(s.id, sid, term=None)
+            # show only if there is at least one score
+            if exam_avg is not None or final_avg is not None:
+                nm = names.get(sid, f"Subject #{sid}")
+                grades_summary[nm] = {
+                    "exam_avg": exam_avg,
+                    "final_avg": final_avg,
+                    "subject_avg": subject_avg,
+                    # keep UI-compatible key:
+                    "gpa_subject": subject_avg,
                 }
+            # representative score for overall
+            rep = _subject_score_for_student(s.id, sid, term=None)
+            if rep is not None:
+                subject_scores[nm] = round(rep, 2)
+                scores_for_overall.append(rep)
 
-        # overall GPA + rank
-        ranking = SchoolClassViewSet().gpa_ranking(request, pk=s.clazz_id).data['ranking']
-        overall = next((r['gpa'] for r in ranking if r['student_id'] == s.id), 0.0)
-        rank = next((r['rank'] for r in ranking if r['student_id'] == s.id), None)
+        avg_overall = round(sum(scores_for_overall) / len(scores_for_overall), 2) if scores_for_overall else 0.0
+
+        # Rank inside the class using the same averaging rule
+        ranking = SchoolClassViewSet().average_ranking(request, pk=s.clazz_id).data['ranking'] if s.clazz_id else []
+        my_row = next((r for r in ranking if r['student_id'] == s.id), None)
+        my_rank = my_row['rank'] if my_row else None
+        class_size = s.clazz.students.count() if s.clazz else 0
 
         payload = {
             'student': StudentSerializer(s).data,
             'class_name': s.clazz.name if s.clazz else '',
             'timetable': ScheduleEntrySerializer(timetable, many=True).data,
             'latest_week_attendance': AttendanceSerializer(latest_att, many=True).data,
-            'grades_summary': summary,
-            'gpa_overall': round(overall, 2),
-            'class_rank': rank,
-            'class_size': s.clazz.students.count() if s.clazz else 0,
+
+            # Average-centric fields (new + backward compatible):
+            'subject_scores': subject_scores,   # { "Matematika": 4.25, ... }
+            'avg_overall': avg_overall,         # e.g., 4.37
+            'grades_summary': grades_summary,   # used by current JS to build the table
+            'gpa_overall': avg_overall,         # keep old key so the badge shows a number
+
+            'class_rank': my_rank,
+            'class_size': class_size
         }
         return Response(payload)
 
 
 class GradeScaleViewSet(viewsets.ModelViewSet):
+    """
+    Retained for compatibility with existing routes; not used by average logic.
+    """
     queryset = GradeScale.objects.all()
     serializer_class = GradeScaleSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
 
 
 class GPAConfigViewSet(viewsets.ModelViewSet):
+    """
+    Retained for compatibility with existing routes; not used by average logic.
+    """
     queryset = GPAConfig.objects.all()
     serializer_class = GPAConfigSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrRegistrarWrite]
 
 
 # =========================
-# READ-ONLY "Directory" APIs (for Students Directory UI)
+# READ-ONLY "Directory" APIs
 # =========================
 
 class ClassDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Lightweight classes list with student counts & teacher name
-    (safe for public directory page).
+    (safe for directory page).
     """
     queryset = (SchoolClass.objects
                 .all()
@@ -701,42 +795,17 @@ class StudentDirectoryViewSet(viewsets.ReadOnlyModelViewSet):
 # =========================
 
 def _clean_phone(p: str) -> str:
-    """Simple phone normalizer: keep digits and add a leading '+'. Adjust to your locale rules."""
+    """Normalize to +998… (digits only) with leading +."""
     if not p:
         return ''
-    digits = re.sub(r'\D+', '', p)
+    digits = ''.join(ch for ch in p if ch.isdigit() or ch == '+')
+    digits = ''.join(ch for ch in digits if ch.isdigit())  # keep only digits
     if not digits:
         return ''
     if digits.startswith('998'):
         return '+' + digits
-    if digits.startswith('+'):
-        return digits
     return '+' + digits
 
-
-# academics/views.py (only this class needs replacing)
-# academics/views.py (replace just this view)
-import re, secrets
-from django.contrib.auth import get_user_model
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from .models import SchoolClass, Student, StudentGuardian
-
-User = get_user_model()
-
-def _clean_phone(p: str) -> str:
-    """Normalize to +998… digits-only with leading + if needed."""
-    if not p:
-        return ''
-    digits = re.sub(r'\D+', '', p)
-    if not digits:
-        return ''
-    # adapt to your locale if needed
-    if digits.startswith('998'):
-        return '+' + digits
-    return '+' + digits  # fallback: just add +
 
 class OperatorEnrollView(APIView):
     """
@@ -776,28 +845,23 @@ class OperatorEnrollView(APIView):
         except SchoolClass.DoesNotExist:
             return Response({'detail':'Class not found'}, status=404)
 
-        # 🔧 FIX: use phone instead of username
         temp_password = None
         parent_user, created = User.objects.get_or_create(
             phone=phone1,
             defaults={
                 'first_name': parent_name or 'Ota-ona',
                 'last_name': '',
-                # add other required defaults if your custom User needs them
             }
         )
 
-        # ensure role is 'parent' and set password for new accounts
         if getattr(parent_user, 'role', '') != 'parent':
             parent_user.role = 'parent'
         if created:
+            import secrets
             temp_password = secrets.token_urlsafe(6)
-            # If your custom user is AbstractBaseUser with USERNAME_FIELD='phone',
-            # this is the right way to set password:
             parent_user.set_password(temp_password)
         parent_user.save()
 
-        # create student
         s = Student.objects.create(
             first_name=first_name,
             last_name=last_name,
@@ -809,27 +873,20 @@ class OperatorEnrollView(APIView):
             address='',
             status='active',
         )
-        # optional: store phone2 on a future field, e.g., guardian_phone2
 
-        # link student ↔ parent
         StudentGuardian.objects.get_or_create(student=s, guardian=parent_user)
 
         return Response({
             'student_id': s.id,
             'class_name': clazz.name,
-            # keep response keys that your JS expects:
-            'parent_username': phone1,     # (login uses phone)
-            'temp_password'  : temp_password,  # only present if created
+            'parent_username': phone1,
+            'temp_password': temp_password,
         }, status=201)
 
-# === School stats API ===
-from datetime import date
-from django.db import models
-from django.db.models import Count
-from django.db.models.functions import TruncMonth
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import permissions
+
+# =========================
+# School statistics API (for analytics page)
+# =========================
 
 class SchoolStatsView(APIView):
     """
@@ -839,9 +896,9 @@ class SchoolStatsView(APIView):
       "totals": {"students": int, "classes": int, "teachers": int, "active_students": int},
       "classes": [{"id": int, "name": str, "students_count": int}],
       "registrations": {
-        "year": 2025,
+        "year": <int>,
         "available": true|false,
-        "monthly": [{"month": "2025-01", "count": 12}, ...],
+        "monthly": [{"month": "YYYY-MM", "count": int}],
         "total": int
       }
     }
@@ -854,9 +911,6 @@ class SchoolStatsView(APIView):
             return Response({"detail": "Forbidden"}, status=403)
 
         # Totals
-        from .models import Student, SchoolClass, Teacher
-
-        # active_students if model has 'status'
         field_names = {f.name for f in Student._meta.get_fields()}
         has_status = "status" in field_names
         students_q = Student.objects.all()
@@ -877,7 +931,7 @@ class SchoolStatsView(APIView):
             .values("id", "name", "students_count")
         )
 
-        # Registrations this year — try to find a date field on Student
+        # Registrations this year — best-effort auto date field
         year = date.today().year
         date_candidates = [
             "enrolled_at", "enrolled_date", "admission_date",
@@ -908,3 +962,157 @@ class SchoolStatsView(APIView):
             "registrations": registrations,
         })
 
+
+# === Staff directory & password management (non-parents) ===
+
+class StaffDirectoryView(APIView):
+    """
+    GET /api/staff/directory/
+    Returns a flat list of all non-parent users (teachers + other staff).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'registrar', 'operator'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        # All users except parents
+        users = (User.objects
+                 .exclude(role='parent')
+                 .order_by('last_name', 'first_name'))
+
+        # Map teacher profile by user_id to enrich specialty
+        teacher_by_user = {
+            t.user_id: t
+            for t in Teacher.objects.select_related('user', 'specialty').filter(user_id__in=[u.id for u in users])
+        }
+
+        rows = []
+        for u in users:
+            t = teacher_by_user.get(u.id)
+            specialty_name = ''
+            if t and getattr(t, 'specialty', None):
+                specialty_name = getattr(t.specialty, 'name', '') or getattr(t.specialty, 'title', '')
+
+            rows.append({
+                'user_id': u.id,
+                'role': getattr(u, 'role', '') or '',
+                'first_name': getattr(u, 'first_name', '') or '',
+                'last_name': getattr(u, 'last_name', '') or '',
+                'phone': getattr(u, 'phone', '') or getattr(u, 'username', ''),
+                'teacher_id': getattr(t, 'id', None),
+                'specialty': specialty_name,
+            })
+        return Response(rows)
+
+
+class StaffSetPasswordView(APIView):
+    """
+    POST /api/staff/set-password/
+    { "user_id": <int>, "password": "<new_password>" }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        role = getattr(request.user, 'role', '')
+        if role not in ('admin', 'registrar', 'operator'):
+            return Response({'detail': 'Forbidden'}, status=403)
+
+        user_id = request.data.get('user_id')
+        password = (request.data.get('password') or '').strip()
+
+        if not user_id or not password:
+            return Response({'detail': 'user_id and password are required'}, status=400)
+        if len(password) < 6:
+            return Response({'detail': 'Parol uzunligi kamida 6 belgi bo‘lishi kerak'}, status=400)
+
+        try:
+            u = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found'}, status=404)
+
+        # Do not allow changing parent passwords via this endpoint
+        if getattr(u, 'role', '') == 'parent':
+            return Response({'detail': 'Forbidden for parents'}, status=403)
+
+        u.set_password(password)
+        u.save()
+        return Response({'ok': True})
+
+
+# =========================
+# Parents directory (no email field in payload)
+# =========================
+
+class ParentDirectoryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        try:
+            role = getattr(request.user, "role", "")
+            if role not in ("admin", "registrar", "operator"):
+                return Response([], status=200)
+
+            parents = list(
+                User.objects
+                .filter(role="parent")
+                .only("id", "first_name", "last_name", "phone")
+                .order_by("last_name", "first_name")
+            )
+            pids = [p.id for p in parents]
+
+            # Gather children via forward FKs (robust to related_name changes)
+            links = (
+                StudentGuardian.objects
+                .select_related("student__clazz")
+                .filter(guardian_id__in=pids)
+                .order_by("student__last_name", "student__first_name")
+            )
+
+            kid_map = {pid: [] for pid in pids}
+            for link in links:
+                s = link.student
+                if not s:
+                    continue
+                kid_map.setdefault(link.guardian_id, []).append({
+                    "id": s.id,
+                    "first_name": s.first_name,
+                    "last_name": s.last_name,
+                    "class": (s.clazz.name if getattr(s, "clazz", None) else None),
+                })
+
+            rows = []
+            for u in parents:
+                rows.append({
+                    "id": u.id,
+                    "first_name": u.first_name or "",
+                    "last_name":  u.last_name  or "",
+                    "phone": getattr(u, "phone", "") or "",
+                    "children": kid_map.get(u.id, []),
+                })
+
+            return Response(rows)
+
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=500)
+
+    @action(detail=True, methods=["post"], url_path="set-password")
+    def set_password(self, request, pk=None):
+        try:
+            role = getattr(request.user, "role", "")
+            if role not in ("admin", "registrar", "operator"):
+                return Response({"detail": "Forbidden"}, status=403)
+
+            password = (request.data.get("password") or "").strip()
+            if len(password) < 6:
+                return Response({"detail": "Parol uzunligi kamida 6 belgi bo‘lishi kerak"}, status=400)
+
+            parent = User.objects.get(pk=pk, role="parent")
+            parent.set_password(password)
+            parent.save(update_fields=["password"])
+            return Response({"status": "password_changed"})
+        except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=500)

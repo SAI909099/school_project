@@ -33,6 +33,9 @@ urlpatterns += [
     path("classes/", TemplateView.as_view(template_name="teacher-class.html"), name="classes"),
     path("jadval/", TemplateView.as_view(template_name="teacher-list.html"), name="jadval"),
     path("sozlamalar/", TemplateView.as_view(template_name="teacher-settings.html"), name="sozlamalar"),
+    path("operator/teachers/", TemplateView.as_view(template_name="operator_teachers.html" ), name="operator-teachers"),
+    path("operator/parents/", TemplateView.as_view(template_name="operator-parents.html" ), name="operator-parents"),
+
 
 
     path("otaona/", TemplateView.as_view(template_name="parents-main.html"), name="otaona"),

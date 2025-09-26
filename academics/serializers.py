@@ -1,10 +1,13 @@
 # academics/serializers.py
 from rest_framework import serializers
-from accounts.models import User
+from django.contrib.auth import get_user_model
+
 from .models import (
     Subject, Teacher, SchoolClass, Student,
     StudentGuardian, ScheduleEntry, Attendance, Grade, GradeScale, GPAConfig
 )
+
+User = get_user_model()
 
 # =========================
 # Core / CRUD serializers
@@ -34,7 +37,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         u = getattr(obj, 'user', None)
         if not u:
             return ''
-        full = f"{(u.first_name or '').strip()} {(u.last_name or '').strip()}".strip()
+        full = f"{(getattr(u, 'first_name', '') or '').strip()} {(getattr(u, 'last_name', '') or '').strip()}".strip()
         return full or str(u)
 
     def get_user_phone(self, obj):
@@ -42,7 +45,8 @@ class TeacherSerializer(serializers.ModelSerializer):
         return getattr(u, 'phone', '') if u else ''
 
     def get_specialty_name(self, obj):
-        return obj.specialty.name if getattr(obj, 'specialty', None) else ''
+        sp = getattr(obj, 'specialty', None)
+        return getattr(sp, 'name', '') if sp else ''
 
 
 class SchoolClassSerializer(serializers.ModelSerializer):
@@ -63,11 +67,10 @@ class SchoolClassSerializer(serializers.ModelSerializer):
         u = getattr(t, 'user', None)
         if not u:
             return getattr(t, 'full_name', '') or ''
-        # Use "First Last" consistently
-        return f"{(u.first_name or '').strip()} {(u.last_name or '').strip()}".strip()
+        return f"{(getattr(u, 'first_name', '') or '').strip()} {(getattr(u, 'last_name', '') or '').strip()}".strip()
 
     def get_student_count(self, obj):
-        # For CRUD views we compute on the fly; for directory views you have students_count via annotate.
+        # Fallback count; directory endpoints may annotate students_count directly.
         return obj.students.count()
 
 
@@ -83,8 +86,7 @@ class StudentSerializer(serializers.ModelSerializer):
         )
 
     def get_full_name(self, obj):
-        return f"{(obj.first_name or '').strip()} {(obj.last_name or '').strip()}".strip()
-
+        return f"{(getattr(obj, 'first_name', '') or '').strip()} {(getattr(obj, 'last_name', '') or '').strip()}".strip()
 
 
 class StudentGuardianSerializer(serializers.ModelSerializer):
@@ -110,7 +112,7 @@ class ScheduleEntrySerializer(serializers.ModelSerializer):
         u = getattr(t, 'user', None) if t else None
         if not u:
             return ''
-        return f"{(u.first_name or '').strip()} {(u.last_name or '').strip()}".strip()
+        return f"{(getattr(u, 'first_name', '') or '').strip()} {(getattr(u, 'last_name', '') or '').strip()}".strip()
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
@@ -137,14 +139,18 @@ class GPAConfigSerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'weight_daily', 'weight_exam', 'weight_final', 'active')
 
 
-# ----- Aggregated read model for Parents UI -----
+# =========================
+# Aggregated read model for Parent UI (average-based, no GPA)
+# =========================
+
 class ChildOverviewSerializer(serializers.Serializer):
     student = StudentSerializer()
     class_name = serializers.CharField()
     timetable = ScheduleEntrySerializer(many=True)
     latest_week_attendance = AttendanceSerializer(many=True)
-    grades_summary = serializers.DictField()
-    gpa_overall = serializers.FloatField()
+    # NEW average-based fields:
+    subject_scores = serializers.DictField()     # { "Math": 4.5, ... }
+    avg_overall = serializers.FloatField()       # e.g., 4.25
     class_rank = serializers.IntegerField(allow_null=True)
     class_size = serializers.IntegerField()
 
@@ -171,7 +177,6 @@ class ClassMiniSerializer(serializers.ModelSerializer):
             return ""
         u = getattr(t, "user", None) or getattr(t, "account", None)
         if u:
-            # "First Last"
             return f"{(getattr(u, 'first_name', '') or '').strip()} {(getattr(u, 'last_name', '') or '').strip()}".strip()
         return getattr(t, "full_name", "") or str(t)
 
@@ -195,7 +200,7 @@ class StudentLiteSerializer(serializers.ModelSerializer):
         t = getattr(obj.clazz, "class_teacher", None)
         u = getattr(t, "user", None) if t else None
         if u:
-            return f"{(u.first_name or '').strip()} {(u.last_name or '').strip()}".strip()
+            return f"{(getattr(u, 'first_name', '') or '').strip()} {(getattr(u, 'last_name', '') or '').strip()}".strip()
         return getattr(t, "full_name", "") if t else ""
 
     def get_parent_name(self, obj):
@@ -205,5 +210,45 @@ class StudentLiteSerializer(serializers.ModelSerializer):
         return getattr(obj, "parent_phone", "") or getattr(obj, "guardian_phone", "") or ""
 
     def get_full_name(self, obj):
-        return f"{(obj.first_name or '').strip()} {(obj.last_name or '').strip()}".strip()
+        return f"{(getattr(obj, 'first_name', '') or '').strip()} {(getattr(obj, 'last_name', '') or '').strip()}".strip()
 
+
+# =========================
+# Parents directory payload
+# =========================
+
+class ParentListSerializer(serializers.ModelSerializer):
+    phone = serializers.SerializerMethodField()
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        # NOTE: email removed intentionally (User has no email; frontend column was deleted)
+        fields = ["id", "first_name", "last_name", "phone", "children"]
+
+    def get_phone(self, user):
+        return getattr(user, "phone", "") or ""
+
+    def get_children(self, user):
+        # Query through the linking model; don't rely on reverse names.
+        links = (StudentGuardian.objects
+                 .select_related("student__clazz")
+                 .filter(guardian=user)
+                 .order_by("student__last_name", "student__first_name"))
+
+        out = []
+        for link in links:
+            s = getattr(link, "student", None)
+            if not s:
+                continue
+            out.append({
+                "id": s.id,
+                "first_name": getattr(s, "first_name", ""),
+                "last_name": getattr(s, "last_name", ""),
+                "class": (getattr(getattr(s, "clazz", None), "name", None)),
+            })
+        return out
+
+
+class ParentPasswordChangeSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True, min_length=6)

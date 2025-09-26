@@ -14,9 +14,11 @@ from .views import (
     # Utility / dashboards
     TeacherDashViewSet, ParentViewSet,
 
-    # Operator one-shot enroll
-    OperatorEnrollView, SchoolStatsView,
+    # Operator & stats
+    OperatorEnrollView, SchoolStatsView, StaffDirectoryView, StaffSetPasswordView, ParentDirectoryViewSet,
 )
+
+app_name = "academics"
 
 router = DefaultRouter()
 
@@ -30,18 +32,22 @@ router.register(r'attendance', AttendanceViewSet, basename='attendance')
 router.register(r'grades', GradeViewSet, basename='grades')
 router.register(r'grade-scales', GradeScaleViewSet, basename='grade-scales')
 router.register(r'gpa-config', GPAConfigViewSet, basename='gpa-config')
+router.register("parents", ParentDirectoryViewSet, basename="parents")
+
 
 # --- Read-only directory/search (for UI lists) ---
 router.register(r'dir/classes', ClassDirectoryViewSet, basename='dir-classes')
 router.register(r'dir/students', StudentDirectoryViewSet, basename='dir-students')
 
-# --- Non-Model endpoints from ViewSets (map actions) ---
+# --- Non-Model endpoints from ViewSets (map specific actions) ---
 teacher_classes_me = TeacherDashViewSet.as_view({'get': 'my_classes'})
 parent_children = ParentViewSet.as_view({'get': 'children'})
 parent_child_overview = ParentViewSet.as_view({'get': 'child_overview'})
 
 urlpatterns = [
-    # Router endpoints
+    # Router (all viewsets, including custom @action routes like
+    # /teachers/directory/, /teachers/{id}/set-password/,
+    # /attendance/bulk-mark/, /classes/{id}/students_az/, etc.)
     path('', include(router.urls)),
 
     # Teacher dashboard helpers
@@ -51,7 +57,10 @@ urlpatterns = [
     path('parent/children/', parent_children, name='parent-children'),
     path('parent/child/<int:student_id>/overview/', parent_child_overview, name='parent-child-overview'),
 
-    # Operator: single-shot enroll (creates parent if needed, adds student, links guardian)
+    # Operator enroll + School stats
     path('operator/enroll/', OperatorEnrollView.as_view(), name='operator-enroll'),
-    path('stats/school/', SchoolStatsView.as_view(), name='school-stats'),  # <-- add
+    path('stats/school/', SchoolStatsView.as_view(), name='school-stats'),
+    path('staff/directory/', StaffDirectoryView.as_view(), name='staff-directory'),
+    path('staff/set-password/', StaffSetPasswordView.as_view(), name='staff-set-password'),
+
 ]

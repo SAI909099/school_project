@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Operator — Ota-onalar ro‘yxati</title>
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+
+  <style>
+    body { background:#f7f8fa; }
+    .page-title { font-weight:600; }
+    .table thead th { white-space: nowrap; }
+    .badge-class { font-size:.75rem; }
+    .parent-card { background:#fff; border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.05); padding:18px; }
+  </style>
+
+  <!-- (Optional) You can set a custom API base -->
+  <script>
+    // window.API_BASE = "/api";
+  </script>
+</head>
+<body>
+
+  <div class="container py-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h1 class="page-title h3 mb-0">👨‍👩‍👧‍👦 Ota-onalar</h1>
+      <a href="/operator/" class="btn btn-outline-secondary btn-sm">← Orqaga</a>
+    </div>
+
+    <div class="parent-card mb-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-md-5">
+          <label for="search" class="form-label mb-1">Qidirish (ism, familiya, telefon, sinf)</label>
+          <input id="search" type="text" class="form-control" placeholder="Masalan: Aliyev, 6-A, +998..." />
+        </div>
+        <div class="col-12 col-md-4">
+          <label for="class-filter" class="form-label mb-1">Sinf bo‘yicha filtr</label>
+          <select id="class-filter" class="form-select">
+            <option value="">Barchasi</option>
+            <!-- JS to‘ldiradi -->
+          </select>
+        </div>
+        <div class="col-12 col-md-3 text-md-end">
+          <button id="btn-refresh" class="btn btn-primary mt-2 mt-md-0">Yangilash</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="parent-card">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:200px">Ota-ona</th>
+              <th>Telefon</th>
+              <th style="min-width:260px">Farzandlari (Ism Familiya — Sinf)</th>
+              <th style="min-width:160px">Amal</th>
+            </tr>
+          </thead>
+          <tbody id="parents-tbody">
+            <!-- JS to‘ldiradi -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <div id="list-meta" class="text-muted small">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password modal -->
+  <div class="modal fade" id="setPasswordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="set-password-form">
+          <div class="modal-header">
+            <h5 class="modal-title">Parolni o‘rnatish</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Yopish"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="guardian-id" />
+            <div class="mb-3">
+              <label class="form-label">Yangi parol</label>
+              <input type="password" id="new-password" class="form-control" minlength="6" required />
+              <div class="invalid-feedback">Parol kamida 6 belgi bo‘lishi kerak.</div>
+            </div>
+            <div class="form-text">Minimal uzunlik: 6 ta belgi.</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Bekor qilish</button>
+            <button type="submit" class="btn btn-primary">Saqlash</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Page logic -->
+  <script src="/static/js/operator-parents.js"></script>
+</body>
+</html>

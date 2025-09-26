@@ -178,7 +178,6 @@ class GPAConfig(models.Model):
 
 class Grade(models.Model):
     TYPE = (
-        ('daily', 'Kundalik'),
         ('exam', 'Imtihon'),
         ('final', 'Yakuniy'),
     )
@@ -187,7 +186,7 @@ class Grade(models.Model):
     teacher = models.ForeignKey('Teacher', on_delete=models.SET_NULL, null=True, related_name='grades_given')
     date = models.DateField(default=timezone.now)
     term = models.CharField(max_length=20, blank=True)  # e.g., 2025-1
-    type = models.CharField(max_length=10, choices=TYPE, default='daily')
+    type = models.CharField(max_length=10, choices=TYPE, default='exam')
     score = models.IntegerField()  # 2..5
     comment = models.CharField(max_length=255, blank=True)
 

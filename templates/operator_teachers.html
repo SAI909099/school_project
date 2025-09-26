@@ -1,0 +1,120 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <title>School Operator — Xodimlar & O‘qituvchilar</title>
+  <link rel="stylesheet" href="{% static 'css/parent-davomat-style.css' %}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    .card{background:#fff;border-radius:12px;box-shadow:0 3px 6px rgba(0,0,0,.08);padding:14px 16px;margin:16px 0}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{border:1px solid #eee;padding:10px}
+    .table th{background:#f7f7f7;text-align:left}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+    .row input,.row select,.row button{border:1px solid #ddd;border-radius:8px;padding:8px 10px}
+    .btn{padding:8px 12px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer}
+    .btn.primary{background:#4f46e5;border-color:#4f46e5;color:#fff}
+    .muted{color:#6b7280}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px}
+    /* Modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;align-items:center;justify-content:center;z-index:50}
+    .modal{background:#fff;border-radius:12px;box-shadow:0 10px 20px rgba(0,0,0,.15);padding:16px;min-width:340px;max-width:92vw}
+    .modal h3{margin-top:0}
+    .modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+    .hidden{display:none}
+    @media (max-width: 980px){
+      .table th:nth-child(6), .table td:nth-child(6){display:none} /* hide UserID on mobile */
+      .table th:nth-child(5), .table td:nth-child(5){display:none} /* hide Specialty on mobile */
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">
+      <img src="{% static 'img/Logo.png' %}" alt="Logo" class="logo-img">
+    </div>
+    <h3 class="sidebar-title">School Operator</h3>
+    <nav class="menu">
+      <a href="{% url 'operator-main' %}"><img src="{% static 'icons/Asosiy-white.png' %}" alt=""> Asosiy</a>
+      <a href="{% url 'operator-davomat' %}"><img src="{% static 'icons/O‘quvchi.png' %}" alt=""> Davomat</a>
+      <a href="{% url 'moliya-oylik' %}"><img src="{% static 'icons/Jadval.png' %}" alt=""> Oyliklar</a>
+      <a href="{% url 'moliya-sozlamalar' %}"><img src="{% static 'icons/sozlamalar.png' %}" alt=""> Sozlamalar</a>
+      <a href="/operator/teachers/" class="active"><img src="{% static 'icons/O‘qituvchi.png' %}" alt=""> Xodimlar</a>
+    </nav>
+  </aside>
+
+  <!-- Content -->
+  <main class="content">
+    <div class="topbar">
+      <input type="text" placeholder="Qidiruv (ism/familiya/telefon/rol)" id="searchInp" />
+      <div class="icons">
+        <a href="#"><img src="{% static 'icons/Xabarlar.png' %}" alt="Bell" /></a>
+        <a href="#"><img src="{% static 'icons/Profil.png' %}" alt="Profile" /></a>
+      </div>
+    </div>
+
+    <h2 class="page-title">Xodimlar & O‘qituvchilar</h2>
+
+    <div class="card">
+      <div class="row">
+        <span class="muted">Parollar xavfsizlik sababli ko‘rsatilmaydi. Har bir foydalanuvchi uchun “Parol o‘rnatish” tugmasidan foydalaning.</span>
+      </div>
+      <div class="row">
+        <label for="roleFilter" class="muted">Rol bo‘yicha filtr:</label>
+        <select id="roleFilter">
+          <option value="">— hammasi —</option>
+          <option value="teacher">teacher</option>
+          <option value="admin">admin</option>
+          <option value="registrar">registrar</option>
+          <option value="operator">operator</option>
+          <option value="accountant">accountant</option>
+        </select>
+      </div>
+
+      <table class="table" id="tblTeachers">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Familiya Ism</th>
+            <th>Rol</th>
+            <th>Telefon (login)</th>
+            <th>Mutaxassislik (o‘qituvchi)</th>
+            <th>UserID</th>
+            <th>Amal</th>
+          </tr>
+        </thead>
+        <tbody><!-- JS fills --></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<!-- Modal: set password -->
+<div class="modal-backdrop" id="pwModalWrap">
+  <div class="modal">
+    <h3>Parol o‘rnatish</h3>
+    <div id="pwTeacher" class="muted" style="margin-bottom:8px;">—</div>
+    <div class="row">
+      <input type="password" id="pwInp" placeholder="Yangi parol (kamida 6 belgi)" style="flex:1;">
+      <button id="togglePw" class="btn">Ko‘rsatish</button>
+    </div>
+    <div class="row">
+      <button id="genPw" class="btn">Tasodifiy</button>
+      <span id="genPwVal" class="badge hidden"></span>
+    </div>
+    <div class="actions">
+      <button id="pwCancel" class="btn">Bekor qilish</button>
+      <button id="pwSave" class="btn primary">Saqlash</button>
+    </div>
+  </div>
+</div>
+
+<script>window.API_BASE='/api';</script>
+<script src="{% static 'js/teachers-admin.js' %}" defer></script>
+</body>
+</html>
