@@ -9,16 +9,30 @@
   const qs = (s, r = document) => r.querySelector(s);
   const el = (t, a = {}, ...kids) => {
     const e = document.createElement(t);
-    for (const [k, v] of Object.entries(a)) {
-      if (k === 'class') e.className = v; else if (v != null) e.setAttribute(k, v);
-    }
+    for (const [k, v] of Object.entries(a)) { if (k === 'class') e.className = v; else if (v != null) e.setAttribute(k, v); }
     kids.forEach(k => e.append(k instanceof Node ? k : document.createTextNode(k)));
     return e;
   };
 
+  async function tryRefresh() {
+    const refresh = localStorage.getItem('refresh'); if (!refresh) return false;
+    const r = await fetch(API_BASE + '/auth/refresh/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh })
+    });
+    if (!r.ok) return false;
+    const data = await r.json().catch(() => ({}));
+    if (data.access) { localStorage.setItem('access', data.access); HEADERS.Authorization = 'Bearer ' + data.access; return true; }
+    return false;
+  }
+
   async function api(path) {
     const url = path.startsWith('http') ? path : API_BASE + (path.startsWith('/') ? path : '/' + path);
-    const r = await fetch(url, { headers: HEADERS });
+    let r = await fetch(url, { headers: HEADERS });
+    if (r.status === 401) {
+      const ok = await tryRefresh();
+      if (ok) r = await fetch(url, { headers: HEADERS });
+      if (r.status === 401) { localStorage.clear(); window.location.href = '/login/'; throw new Error('401'); }
+    }
     if (!r.ok) throw new Error(await r.text().catch(() => `HTTP ${r.status}`));
     return r.json();
   }
@@ -103,22 +117,22 @@
 
     SELECTED_T = TEACHERS.find(t => t.id === tId) || null;
 
-    // If your backend supports ?teacher=<id> use it; otherwise we filter after fetch
+    // If backend supports ?teacher=, use it; else filter locally
     const all = await api('/schedule/?teacher=' + tId).catch(() => api('/schedule/'));
     const data = Array.isArray(all) ? all : (all.results || []);
-    const mine = data.filter(x => x.teacher === tId);
+    const mine = data.filter(x => Number(x.teacher) === tId);
 
     // Group by weekday, sort by start_time
     const byWd = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
     mine.forEach(x => { if (byWd[x.weekday]) byWd[x.weekday].push(x); });
     Object.values(byWd).forEach(a => a.sort((a, b) => String(a.start_time).localeCompare(String(b.start_time))));
 
-    const maxRows = Math.max(...Object.values(byWd).map(a => a.length), 0);
+    const maxRows  = Math.max(...Object.values(byWd).map(a => a.length), 0);
     const rowCount = Math.max(1, maxRows || 8);
-    const times = defaultTimes(rowCount);
+    const times    = defaultTimes(rowCount); // used only if you later want default times in cells
 
     const thead = el('thead', {}, el('tr', {},
-      el('th', {}, '№ / vaqt'),
+      el('th', {}, '№'),                 // ← time removed from header
       el('th', {}, 'Dushanba'),
       el('th', {}, 'Seshanba'),
       el('th', {}, 'Chorshanba'),
@@ -130,28 +144,25 @@
 
     for (let i = 0; i < rowCount; i++) {
       const tr = el('tr', {});
-      const tm = times[i] || { start: '', end: '' };
-      tr.append(el('td', {}, `#${i + 1} ${tm.start}–${tm.end}`));
+      tr.append(el('td', {}, `#${i + 1}`)); // ← only number, no time
 
       for (let wd = 1; wd <= 6; wd++) {
         const e = byWd[wd][i];
 
         if (e) {
-          // Build a compact slot with clear “Xona” pill:
           const time = `${(e.start_time || '').slice(0, 5)}–${(e.end_time || '').slice(0, 5)}`;
           const subj = e.subject_name ? `Fan: ${e.subject_name}` : '';
           const cls  = e.class_name   ? `Sinf: ${e.class_name}`   : '';
-          const room = e.room ? e.room : ''; // ← room comes from API
+          const room = e.room ? e.room : '';
 
           const info = [subj, cls].filter(Boolean).join('\n');
-          const roomPill = room ? el('span', {class:'pill', title:'Xona'}, `Xona: ${room}`) : null;
+          const roomPill = room ? el('span', { class: 'pill', title: 'Xona' }, `Xona: ${room}`) : null;
 
           const slot = el('div', { class: 'slot' },
             el('b', {}, time),
-            el('div', { class: 'meta-line' }, info),
+            info ? el('div', { class: 'meta-line' }, info) : '',
             roomPill ? el('div', {}, roomPill) : ''
           );
-
           tr.append(el('td', {}, slot));
         } else {
           tr.append(el('td', {}, ''));
@@ -166,7 +177,7 @@
     if (meta) meta.textContent = `O‘qituvchi: ${name}${spec}`;
   }
 
-  // ---- CSV export (includes room text because we read from rendered table)
+  // ---- CSV export
   function tableToCsv() {
     const rows = Array.from(tbl.querySelectorAll('tr'));
     return rows.map(tr => {
@@ -184,8 +195,7 @@
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `${nameFromMeta}.csv`;
+    a.href = url; a.download = `${nameFromMeta}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

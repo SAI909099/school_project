@@ -330,24 +330,34 @@ class ScheduleEntryViewSet(viewsets.ModelViewSet):
 # Attendance
 # =========================
 
+# =========================
+# Attendance (per-lesson safe)
+# =========================
+
 class AttendanceViewSet(viewsets.ModelViewSet):
     """
     CRUD + utilities for attendance.
+
+    Backward compatible:
+      - If `schedule` is provided in write/read calls, it is used to
+        uniquely identify the lesson on that day.
+      - Otherwise we fall back to `subject` (legacy behavior).
     """
-    queryset = (Attendance.objects
-                .select_related('student', 'clazz', 'subject', 'teacher')
-                .all())
+    queryset = (
+        Attendance.objects
+        .select_related('student', 'clazz', 'subject', 'teacher', 'schedule', 'schedule__subject', 'schedule__clazz')
+        .all()
+    )
     serializer_class = AttendanceSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrTeacherWrite]
 
     # ---- base scoping for list/retrieve ----
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().distinct()
         u = self.request.user
         role = getattr(u, 'role', None)
 
         if role == 'teacher':
-            # Teacher sees: their homeroom class, lessons they teach, or classes they teach in schedule
             try:
                 t = u.teacher_profile
                 qs = qs.filter(
@@ -359,12 +369,10 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 return Attendance.objects.none()
 
         elif role == 'parent':
-            # Parent sees only their children
             child_ids = StudentGuardian.objects.filter(guardian=u).values_list('student_id', flat=True)
             qs = qs.filter(student_id__in=child_ids)
 
-        # admin/registrar/operator: see all
-        return qs.distinct()
+        return qs
 
     # ---- bulk mark: used by teacher page (present/absent/late/excused) ----
     @action(detail=False, methods=['post'], url_path='bulk-mark')
@@ -373,7 +381,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         Payload:
         {
           "class": <id>, "date": "YYYY-MM-DD",
-          "subject": <id or null>,
+          "schedule": <id or null>,   # NEW (preferred)
+          "subject":  <id or null>,   # legacy fallback
           "entries": [{"student":id, "status":"present|absent|late|excused", "note":""}]
         }
         """
@@ -383,15 +392,29 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
         clazz = request.data.get('class')
         dt = request.data.get('date')
+        schedule_id = request.data.get('schedule')
         subject = request.data.get('subject')
         entries = request.data.get('entries', [])
 
         if not clazz or not dt or not isinstance(entries, list):
             return Response({'detail': 'class, date and entries are required'}, status=400)
         try:
-            date.fromisoformat(dt)
+            d_obj = date.fromisoformat(dt)
         except Exception:
             return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
+
+        # Validate/resolve schedule if provided
+        sch = None
+        if schedule_id:
+            try:
+                sch = ScheduleEntry.objects.select_related('clazz', 'subject').get(id=schedule_id)
+            except ScheduleEntry.DoesNotExist:
+                return Response({'detail': 'schedule not found'}, status=404)
+            if int(sch.clazz_id) != int(clazz):
+                return Response({'detail': 'schedule does not belong to provided class'}, status=400)
+            # Optional sanity: weekday check (do not hard-fail)
+            # wd = (d_obj.weekday() + 1)  # Mon..Sat => 1..6
+            # if sch.weekday != wd: pass
 
         try:
             t = u.teacher_profile if getattr(u, 'role', None) == 'teacher' else None
@@ -404,14 +427,30 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             st  = e.get('status')
             if not sid or st not in ('present', 'absent', 'late', 'excused'):
                 continue
-            obj, _ = Attendance.objects.update_or_create(
-                student_id=sid, date=dt, subject_id=subject,
-                defaults={'status': st, 'note': e.get('note', ''), 'clazz_id': clazz, 'teacher': t}
-            )
+
+            # Unique key prefers schedule; else legacy subject
+            key = {'student_id': sid, 'date': dt}
+            if sch is not None:
+                key['schedule_id'] = sch.id
+            else:
+                key['subject_id'] = subject
+
+            defaults = {
+                'status': st,
+                'note': e.get('note', ''),
+                'clazz_id': clazz,
+                'teacher': t,
+            }
+            # help queries / analytics even when schedule used
+            if sch is not None:
+                defaults.setdefault('subject_id', getattr(sch, 'subject_id', None))
+
+            obj, _ = Attendance.objects.update_or_create(**key, defaults=defaults)
             ids.append(obj.id)
+
         return Response({'ok': True, 'ids': ids})
 
-    # ---- simple mark: used by operator page (boolean "present") ----
+    # ---- simple mark: used by operator page (boolean present) ----
     @action(detail=False, methods=['post'], url_path='mark')
     def mark(self, request):
         """
@@ -419,7 +458,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         {
           "class_id": <id>,
           "date": "YYYY-MM-DD",
-          "subject": <id or null, optional>,
+          "schedule": <id or null>,   # NEW (preferred)
+          "subject":  <id or null>,   # legacy fallback
           "items": [{"student": id, "present": true|false}]
         }
         """
@@ -429,15 +469,25 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
         clazz = request.data.get('class_id')
         dt = request.data.get('date')
+        schedule_id = request.data.get('schedule')
         subject = request.data.get('subject')
         items = request.data.get('items', [])
 
         if not clazz or not dt or not isinstance(items, list):
             return Response({'detail': 'class_id, date and items are required'}, status=400)
         try:
-            date.fromisoformat(dt)
+            d_obj = date.fromisoformat(dt)
         except Exception:
             return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
+
+        sch = None
+        if schedule_id:
+            try:
+                sch = ScheduleEntry.objects.select_related('clazz', 'subject').get(id=schedule_id)
+            except ScheduleEntry.DoesNotExist:
+                return Response({'detail': 'schedule not found'}, status=404)
+            if int(sch.clazz_id) != int(clazz):
+                return Response({'detail': 'schedule does not belong to provided class'}, status=400)
 
         try:
             t = u.teacher_profile if getattr(u, 'role', None) == 'teacher' else None
@@ -447,27 +497,37 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         ids = []
         for it in items:
             sid = it.get('student')
-            present = bool(it.get('present'))
             if not sid:
                 continue
-            status_val = 'present' if present else 'absent'
-            obj, _ = Attendance.objects.update_or_create(
-                student_id=sid, date=dt, subject_id=subject,
-                defaults={'status': status_val, 'note': '', 'clazz_id': clazz, 'teacher': t}
-            )
+            status_val = 'present' if bool(it.get('present')) else 'absent'
+
+            key = {'student_id': sid, 'date': dt}
+            if sch is not None:
+                key['schedule_id'] = sch.id
+            else:
+                key['subject_id'] = subject
+
+            defaults = {'status': status_val, 'note': '', 'clazz_id': clazz, 'teacher': t}
+            if sch is not None:
+                defaults.setdefault('subject_id', getattr(sch, 'subject_id', None))
+
+            obj, _ = Attendance.objects.update_or_create(**key, defaults=defaults)
             ids.append(obj.id)
+
         return Response({'ok': True, 'ids': ids})
 
-    # ---- read back saved marks for a class/day (+ optional subject) ----
+    # ---- read back saved marks for a class/day (+ optional schedule/subject) ----
     @action(detail=False, methods=['get'], url_path='by-class-day')
     def by_class_day(self, request):
         """
-        GET /api/attendance/by-class-day/?class=<id>&date=YYYY-MM-DD&subject=<id?>
+        GET /api/attendance/by-class-day/?class=<id>&date=YYYY-MM-DD&schedule=<id?>&subject=<id?>
         Returns: [{"student_id":..., "status":"present|absent|late|excused", "note": "..."}]
         """
         clazz = request.query_params.get('class')
         dt = request.query_params.get('date')
+        schedule_id = request.query_params.get('schedule')
         subject = request.query_params.get('subject')
+
         if not clazz or not dt:
             return Response({'detail': 'class and date are required'}, status=400)
         try:
@@ -476,19 +536,17 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
 
         qs = self.get_queryset().filter(clazz_id=clazz, date=dt)
-        if subject:
+        if schedule_id:
+            qs = qs.filter(schedule_id=schedule_id)
+        elif subject:
             qs = qs.filter(subject_id=subject)
+
         data = qs.values('student_id', 'status', 'note')
         return Response(list(data))
 
-    # ---- "Kelmaganlar" list (DB-agnostic, 1 row per student) ----
+    # ---- "Kelmaganlar" list (1 row per student for the day) ----
     @action(detail=False, methods=['get'], url_path='absent')
     def absent(self, request):
-        """
-        GET /api/attendance/absent/?date=YYYY-MM-DD&class=<id?>
-        Returns: [{"student_id", "full_name", "class_name", "parent_phone"}, ...]
-        (one row per student even if multiple lessons absent)
-        """
         date_str = request.query_params.get('date')
         if not date_str:
             return Response({'detail': 'date is required (YYYY-MM-DD)'}, status=400)
@@ -498,17 +556,15 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'invalid date (YYYY-MM-DD)'}, status=400)
 
         class_id = request.query_params.get('class')
-
         base_qs = self.get_queryset().filter(date=date_str, status='absent')
         if class_id:
             base_qs = base_qs.filter(clazz_id=class_id)
 
-        # Cross-DB safe "distinct student" selection:
-        # pick the smallest Attendance.id per student for that day
-        ids_qs = (base_qs.values('student_id')
-                         .annotate(first_id=Min('id'))
-                         .values_list('first_id', flat=True))
-
+        ids_qs = (
+            base_qs.values('student_id')
+            .annotate(first_id=Min('id'))
+            .values_list('first_id', flat=True)
+        )
         qs = Attendance.objects.filter(id__in=ids_qs).select_related('student', 'clazz')
 
         rows = []
@@ -527,6 +583,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 'parent_phone': getattr(s, 'parent_phone', '') or '',
             })
         return Response(rows)
+
 
 
 class GradeViewSet(viewsets.ModelViewSet):

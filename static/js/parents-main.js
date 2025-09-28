@@ -1,4 +1,5 @@
 /* static/js/parents-main.js — simplified main page (no sidebar, no GPA/rank) */
+/* Davomat (attendance) button removed — only “Baholar” remains */
 (function () {
   const API = (window.API_BASE || '/api').replace(/\/+$/, '');
   const access = localStorage.getItem('access');
@@ -16,13 +17,37 @@
     kids.forEach(k => e.append(k instanceof Node ? k : document.createTextNode(k)));
     return e;
   };
+
+  async function tryRefresh() {
+    const refresh = localStorage.getItem('refresh');
+    if (!refresh) return false;
+    const r = await fetch(API + '/auth/refresh/', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ refresh })
+    });
+    if (!r.ok) return false;
+    const data = await r.json().catch(()=>({}));
+    if (data.access) {
+      localStorage.setItem('access', data.access);
+      HEADERS.Authorization = 'Bearer ' + data.access;
+      return true;
+    }
+    return false;
+  }
+
   async function api(path) {
     const url = path.startsWith('http') ? path : API + (path.startsWith('/') ? path : '/' + path);
-    const r = await fetch(url, { headers: HEADERS });
-    if (r.status === 401) { localStorage.clear(); window.location.replace('/'); throw new Error('401'); }
+    let r = await fetch(url, { headers: HEADERS });
+    if (r.status === 401) {
+      const ok = await tryRefresh();
+      if (ok) r = await fetch(url, { headers: HEADERS });
+      if (r.status === 401) { localStorage.clear(); window.location.replace('/'); throw new Error('401'); }
+    }
     if (!r.ok) throw new Error(await r.text().catch(() => `HTTP ${r.status}`));
     return r.json();
   }
+
   function btnStyle(){
     return [
       'padding:8px 12px',
@@ -137,7 +162,8 @@
         slots.forEach(s=>{
           const time = `${(s.start_time||'').slice(0,5)}–${(s.end_time||'').slice(0,5)}`.replace(/^–$/,'');
           const subj = s.subject_name || 'Fan';
-          const st   = attMap.get(`${iso}::${s.subject}`) || null;
+          // prefer subject-specific mark; fallback to day-only mark (subject=null)
+          const st   = (attMap.get(`${iso}::${s.subject}`) ?? attMap.get(`${iso}::none`) ?? null);
           col.append(
             el('div', { class:'lesson' },
               el('div', { class:'time' }, time || '—'),
@@ -184,13 +210,8 @@
     const meta = el('div', { class:'meta-row' });
     meta.append(el('span', {}, 'Sinf: ' + clsName));
 
-    // Keep action buttons (so navigation still works without sidebar)
+    // Single action button: Baholar (Davomat removed)
     const actions = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;' },
-      (() => {
-        const b = el('a', { href: '/otaona/davomat/', class: 'btn', style: btnStyle() }, 'Davomat');
-        b.addEventListener('click', () => localStorage.setItem('parent_current_child', String(child.id)));
-        return b;
-      })(),
       (() => {
         const b = el('a', { href: '/otaona/baholar/', class: 'btn', style: btnStyle() }, 'Baholar');
         b.addEventListener('click', () => localStorage.setItem('parent_current_child', String(child.id)));

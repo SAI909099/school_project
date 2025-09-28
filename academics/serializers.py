@@ -115,10 +115,69 @@ class ScheduleEntrySerializer(serializers.ModelSerializer):
         return f"{(getattr(u, 'first_name', '') or '').strip()} {(getattr(u, 'last_name', '') or '').strip()}".strip()
 
 
+# --- replace this class ---
 class AttendanceSerializer(serializers.ModelSerializer):
+    # helpful read-only extras (won't break existing clients)
+    class_name   = serializers.CharField(source='clazz.name', read_only=True)
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    teacher_name = serializers.SerializerMethodField()
+    schedule_info = serializers.SerializerMethodField()
+
     class Meta:
         model = Attendance
-        fields = ('id', 'student', 'date', 'status', 'clazz', 'subject', 'teacher', 'note')
+        fields = (
+            'id',
+            'student',
+            'date',
+            'status',
+            'clazz', 'class_name',
+            'subject', 'subject_name',
+            'schedule',        # <-- NEW: expose the per-lesson anchor
+            'schedule_info',   # <-- optional, for convenience in UIs
+            'teacher', 'teacher_name',
+            'note',
+        )
+
+    def get_teacher_name(self, obj):
+        t = getattr(obj, 'teacher', None)
+        u = getattr(t, 'user', None) if t else None
+        if not u:
+            return ''
+        first = (getattr(u, 'first_name', '') or '').strip()
+        last  = (getattr(u, 'last_name',  '') or '').strip()
+        return f"{first} {last}".strip()
+
+    def get_schedule_info(self, obj):
+        """
+        Small convenience payload so UIs can show the slot without another call.
+        """
+        s = getattr(obj, 'schedule', None)
+        if not s:
+            return None
+        return {
+            'id': s.id,
+            'weekday': s.weekday,
+            'start_time': s.start_time,
+            'end_time': s.end_time,
+            'room': s.room,
+            'subject': s.subject_id,
+            'subject_name': getattr(s.subject, 'name', None),
+            'class': s.clazz_id,
+            'class_name': getattr(s.clazz, 'name', None),
+        }
+
+    def validate(self, attrs):
+        """
+        Keep legacy compatibility:
+        - allow (subject) only OR (schedule) only
+        - prefer schedule when both provided
+        """
+        schedule = attrs.get('schedule') or getattr(self.instance, 'schedule', None)
+        subject  = attrs.get('subject')  or getattr(self.instance, 'subject', None)
+        if not schedule and not subject:
+            raise serializers.ValidationError("Either 'schedule' or 'subject' must be provided.")
+        return attrs
+
 
 
 class GradeSerializer(serializers.ModelSerializer):

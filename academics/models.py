@@ -1,9 +1,9 @@
+# academics/models.py
 from django.db import models
+from django.db.models import Q
 from django.conf import settings
 from django.utils import timezone
 from django.core.exceptions import ValidationError
-
-
 
 User = settings.AUTH_USER_MODEL
 
@@ -117,8 +117,16 @@ class ScheduleEntry(models.Model):
             raise ValidationError("O‘qituvchi bu vaqtda boshqa darsga qo‘yilgan.")
 
 
-
 class Attendance(models.Model):
+    """
+    Attendance row can be anchored to:
+      - a specific schedule slot (preferred, solves 'same subject twice' issue)
+      - or legacy subject-only (when schedule is null)
+
+    Uniqueness is enforced:
+      * (student, date, schedule) — when schedule is set
+      * (student, date, subject)  — only when schedule is NULL (legacy rows)
+    """
     STATUS = (
         ('present', 'Kelgan'),
         ('absent', 'Kelmagan'),
@@ -128,18 +136,55 @@ class Attendance(models.Model):
     student = models.ForeignKey('Student', on_delete=models.CASCADE, related_name='attendance')
     date = models.DateField(default=timezone.now)
     status = models.CharField(max_length=10, choices=STATUS, default='present')
+
     clazz = models.ForeignKey('SchoolClass', on_delete=models.CASCADE, related_name='attendance')
     subject = models.ForeignKey('Subject', on_delete=models.SET_NULL, null=True, blank=True, related_name='attendance')
-    teacher = models.ForeignKey('Teacher', on_delete=models.SET_NULL, null=True, blank=True, related_name='attendance_marked')
+
+    # NEW: exact lesson slot
+    schedule = models.ForeignKey('ScheduleEntry', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='attendance')
+
+    teacher = models.ForeignKey('Teacher', on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name='attendance_marked')
     note = models.CharField(max_length=255, blank=True)
 
     class Meta:
-        unique_together = (('student', 'date', 'subject'),)
-        indexes = [models.Index(fields=['student', 'date'])]
+        constraints = [
+            # per-slot uniqueness
+            models.UniqueConstraint(fields=['student', 'date', 'schedule'],
+                                    name='uniq_att_student_date_schedule'),
+            # subject-based uniqueness only when no schedule is set (legacy)
+            models.UniqueConstraint(fields=['student', 'date', 'subject'],
+                                    name='uniq_att_student_date_subject_when_no_schedule',
+                                    condition=Q(schedule__isnull=True)),
+        ]
+        indexes = [
+            models.Index(fields=['student', 'date']),
+            models.Index(fields=['date', 'schedule']),
+        ]
         ordering = ['-date', 'student_id']
 
     def __str__(self):
         return f"{self.date} {self.student} {self.status}"
+
+    def clean(self):
+        # Must have at least one anchor
+        if not self.schedule_id and not self.subject_id:
+            raise ValidationError("Attendance: 'schedule' yoki 'subject' ko‘rsatilishi shart.")
+
+    def save(self, *args, **kwargs):
+        """
+        When schedule is provided, auto-fill subject/clazz/teacher if missing
+        so existing queries and reports continue to work.
+        """
+        if self.schedule_id:
+            if not self.subject_id:
+                self.subject_id = self.schedule.subject_id
+            if not self.clazz_id:
+                self.clazz_id = self.schedule.clazz_id
+            if not self.teacher_id:
+                self.teacher_id = self.schedule.teacher_id
+        super().save(*args, **kwargs)
 
 
 class GradeScale(models.Model):
