@@ -1,5 +1,4 @@
-/* static/js/parents-main.js — simplified main page (no sidebar, no GPA/rank) */
-/* Davomat (attendance) button removed — only “Baholar” remains */
+/* static/js/parents-main.js — parent main page with Daily Grades button */
 (function () {
   const API = (window.API_BASE || '/api').replace(/\/+$/, '');
   const access = localStorage.getItem('access');
@@ -100,8 +99,8 @@
     const phoneEl = $('.profile-info p:nth-of-type(1)');
 
     const first = (me?.first_name || '').trim();
-    const last  = (me?.last_name  || '').trim();
-    const fio   = [last, first].filter(Boolean).join(' ') || (me?.username || '—');
+    thelast  = (me?.last_name  || '').trim();
+    const fio   = [thelast, first].filter(Boolean).join(' ') || (me?.username || '—');
 
     if (fioEl)   fioEl.textContent = 'F.I.O: ' + fio;
     if (phoneEl) phoneEl.textContent = 'Telefon: ' + ((me?.phone || '').trim() || '—');
@@ -147,14 +146,13 @@
     const body = el('div', { class:'grid-body' });
 
     for (let i=0;i<6;i++){
-      const wd = i+1;
       const d = addDays(mon, i);
       const iso = toISO(d);
 
       head.append(el('div', {}, `${WD_LABELS[i]} (${iso.slice(5)})`));
 
       const col = el('div', { class:'day-col' });
-      const slots = byDay[wd];
+      const slots = byDay[i+1];
 
       if (!slots.length){
         col.append(el('div', { class:'lesson muted' }, 'Bu kunda dars yo‘q'));
@@ -162,7 +160,6 @@
         slots.forEach(s=>{
           const time = `${(s.start_time||'').slice(0,5)}–${(s.end_time||'').slice(0,5)}`.replace(/^–$/,'');
           const subj = s.subject_name || 'Fan';
-          // prefer subject-specific mark; fallback to day-only mark (subject=null)
           const st   = (attMap.get(`${iso}::${s.subject}`) ?? attMap.get(`${iso}::none`) ?? null);
           col.append(
             el('div', { class:'lesson' },
@@ -195,6 +192,33 @@
   }
 
   // ---------- child card ----------
+  function actionButtonsFor(child){
+    const frag = document.createDocumentFragment();
+
+    const gradesBtn = el('a', {
+      href: '/otaona/baholar/',
+      class: 'btn',
+      style: btnStyle(),
+      title: 'Imtihon/Yakuniy baholar'
+    }, 'Baholar');
+    gradesBtn.addEventListener('click', () => {
+      localStorage.setItem('parent_current_child', String(child.id));
+    });
+
+    const dailyBtn = el('a', {
+      href: '/grades/daily/',
+      class: 'btn',
+      style: btnStyle(),
+      title: 'Kundalik baholar'
+    }, 'Kundalik baholar');
+    dailyBtn.addEventListener('click', () => {
+      localStorage.setItem('parent_current_child', String(child.id));
+    });
+
+    frag.append(gradesBtn, dailyBtn);
+    return frag;
+  }
+
   async function renderChildOverview(container, child){
     container.innerHTML = '';
 
@@ -206,17 +230,11 @@
     const clsName = (ov?.class_name || child.class_name || child.clazz || '—');
     const header = el('div', { style:'font-weight:600;margin-bottom:6px;' }, full || 'F.I.O');
 
-    // ONLY class info (no GPA, no Rank)
     const meta = el('div', { class:'meta-row' });
     meta.append(el('span', {}, 'Sinf: ' + clsName));
 
-    // Single action button: Baholar (Davomat removed)
     const actions = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;' },
-      (() => {
-        const b = el('a', { href: '/otaona/baholar/', class: 'btn', style: btnStyle() }, 'Baholar');
-        b.addEventListener('click', () => localStorage.setItem('parent_current_child', String(child.id)));
-        return b;
-      })()
+      actionButtonsFor(child)
     );
 
     container.append(header, meta, actions);
