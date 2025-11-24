@@ -22,8 +22,7 @@ services:
       - postgres
     ports:
       - "8001:8000"
-    volumes:
-      - .:/app
+
 
   nginx:
     image: nginx:stable
