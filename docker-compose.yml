@@ -22,7 +22,8 @@ services:
       - postgres
     ports:
       - "8001:8000"
-
+    # ❗ DO NOT MOUNT ./:/app — it overrides staticfiles produced during build
+    # Use a clean image → staticfiles stay inside container
 
   nginx:
     image: nginx:stable
@@ -32,9 +33,9 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - ./staticfiles:/app/staticfiles
-      - ./media:/app/media
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./media:/app/media        # media is OK to mount
+      # ❗ DO NOT MOUNT staticfiles – they must stay inside backend container
 
 volumes:
   postgres_data:
