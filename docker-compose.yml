@@ -24,7 +24,7 @@ services:
       - "8000"
     volumes:
       - ./media:/app/media
-      - static_volume:/app/staticfiles   # 🔥 STATIC SHARED VOLUME FOR COLLECTSTATIC
+      - static_volume:/app/staticfiles     # shared static volume
 
   nginx:
     image: nginx:stable
@@ -32,12 +32,26 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      - "80:80"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - static_volume:/app/staticfiles   # 🔥 SAME STATIC VOLUME, nginx reads from here
-      - ./media:/app/media               # serve uploads
+      - static_volume:/app/staticfiles
+      - ./media:/app/media
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+      - ./media:/app/media
+    entrypoint: /bin/sh
 
 volumes:
   postgres_data:
   static_volume:
+  certbot-etc:
+  certbot-var:
