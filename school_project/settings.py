@@ -126,3 +126,10 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL', cast=bool, default=True)
 
 ALLOW_DAILY_GRADES = True
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://212.47.71.155',
+    'http://212.47.71.155',
+    'https://212.47.71.155:8080',
+    'http://212.47.71.155:8080',
+]
