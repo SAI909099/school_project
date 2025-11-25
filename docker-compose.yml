@@ -24,7 +24,7 @@ services:
       - "8000"
     volumes:
       - ./media:/app/media
-      - static_volume:/app/staticfiles
+      - static_volume:/app/staticfiles   # shared static files
 
   nginx:
     image: nginx:stable
@@ -39,8 +39,8 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - static_volume:/app/staticfiles
       - ./media:/app/media
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/lib/letsencrypt
+      - certbot-etc:/etc/letsencrypt      # SSL certificates
+      - certbot-var:/var/lib/letsencrypt  # ACME challenge files
 
   certbot:
     image: certbot/certbot
@@ -50,7 +50,8 @@ services:
     volumes:
       - certbot-etc:/etc/letsencrypt
       - certbot-var:/var/lib/letsencrypt
-    entrypoint: ""
+    entrypoint: ""       # <-- IMPORTANT (fixes the certbot error)
+    command: ""          # Do not run automatically
 
 volumes:
   postgres_data:
