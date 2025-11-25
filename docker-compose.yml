@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"   # use port 5433 so it doesn't conflict with Medservise
+      - "5433:5432"   # school project uses its own DB port
 
   backend:
     build: .
@@ -21,10 +21,9 @@ services:
     depends_on:
       - postgres
     expose:
-      - "8000"        # expose internally, do NOT publish to host
-    # ❗ Do NOT mount .:/app – this destroys collectstatic results
+      - "8000"  # only internal
     volumes:
-      - ./media:/app/media   # only media should be mounted
+      - ./media:/app/media  # only media should be mounted (safe)
 
   nginx:
     image: nginx:stable
@@ -32,11 +31,11 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"     # School project runs on port 8080
+      - "8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./media:/app/media         # serve user-uploaded files from host
-      # ❗ DO NOT mount staticfiles → static files stay inside backend image
+      - ./media:/app/media       # serve uploaded files
+      # ❗ DO NOT MOUNT STATICFILES — they live inside backend container
 
 volumes:
   postgres_data:
