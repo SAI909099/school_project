@@ -24,10 +24,11 @@ services:
       - "8000"
     volumes:
       - ./media:/app/media
-      - static_volume:/app/staticfiles     # shared static volume
+      - static_volume:/app/staticfiles
 
   nginx:
     image: nginx:stable
+    container_name: nginx
     restart: always
     depends_on:
       - backend
@@ -44,11 +45,12 @@ services:
   certbot:
     image: certbot/certbot
     container_name: certbot
+    depends_on:
+      - nginx
     volumes:
       - certbot-etc:/etc/letsencrypt
       - certbot-var:/var/lib/letsencrypt
-      - ./media:/app/media
-    entrypoint: /bin/sh
+    entrypoint: ""
 
 volumes:
   postgres_data:
