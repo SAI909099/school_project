@@ -30,7 +30,7 @@ services:
   medservise:
     image: medservise-backend   # your existing image
     restart: always
-    env_file: /var/www/medservise/.env
+    env_file: /var/www/Medservise/.env
     expose:
       - "8000"
 
