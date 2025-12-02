@@ -92,3 +92,11 @@ docker-compose exec web python manage.py migrate
 
 5️⃣ Create superuser
 docker-compose exec web python manage.py createsuperuser
+```
+
+👨‍💻 Author
+Abdulazizxon Sulaymonov
+Python Backend Developer
+📧 Email: sulaymonovabdulaziz1@gmail.com
+GitHub: https://github.com/SAI909099
+
